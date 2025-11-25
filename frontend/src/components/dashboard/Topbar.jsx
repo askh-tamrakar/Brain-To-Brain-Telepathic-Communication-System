@@ -15,7 +15,8 @@ export default function Topbar({
     commands: 'Commands',
     recordings: 'Recordings',
     devices: 'Devices',
-    chat: 'Chat'
+    chat: 'Chat',
+    mock: 'Mock Signal View'
   }
   
   return (

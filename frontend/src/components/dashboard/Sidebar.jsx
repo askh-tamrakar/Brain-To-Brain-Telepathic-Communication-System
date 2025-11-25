@@ -6,7 +6,10 @@ export default function Sidebar({ currentPage, setCurrentPage, isOpen }) {
     { id: 'commands', name: 'Commands', icon: '⌨️' },
     { id: 'recordings', name: 'Recordings', icon: '💾' },
     { id: 'devices', name: 'Devices', icon: '🔌' },
-    { id: 'chat', name: 'Chat', icon: '💬' }
+    { id: 'chat', name: 'Chat', icon: '💬' },
+    { id: 'mock', name: 'Mock Signal Graph', icon: '📊' }, 
+    { id: 'settings', name: 'Settings', icon: '⚙️' },
+    { id: 'test', name: 'Test', icon: '⚙️' }
   ]
   
   return (
