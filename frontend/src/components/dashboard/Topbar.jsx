@@ -17,7 +17,8 @@ export default function Topbar({
     devices: 'Devices',
     chat: 'Chat',
     mock: 'Mock Signal',
-    setting: 'Settings'
+    setting: 'Settings',
+    test: 'Test Page'
   }
   
   return (
