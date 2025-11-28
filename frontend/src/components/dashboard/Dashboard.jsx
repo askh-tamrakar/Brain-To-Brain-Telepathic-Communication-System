@@ -17,7 +17,7 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState('live')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const { status, lastMessage, latency, connect, disconnect } = useWebSocket(
-    import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws'
+    import.meta.env.VITE_WS_URL || 'ws://localhost:5000'
   )
   
 

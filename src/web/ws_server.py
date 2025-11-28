@@ -23,7 +23,7 @@ HOST = "0.0.0.0"
 PORT = 8765
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "simple_rf.joblib")
 # Set to True after you have a trained model at MODEL_PATH
-LOAD_MODEL = False
+LOAD_MODEL = True
 
 # --- logging ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -107,7 +107,7 @@ async def handler(ws: websockets.WebSocketServerProtocol, path: str) -> None:
 
                 # timestamp in ms (wall-clock)
                 timestamp_ms = int(time.time() * 1000)
-
+                                                                                                                                                                                                                                                                                    
                 out = {
                     "source": payload.get("modality", "unknown"),
                     "pred": {"label": pred["label"], "prob": pred["prob"]},
