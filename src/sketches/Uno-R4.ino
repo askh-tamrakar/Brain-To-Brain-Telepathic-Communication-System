@@ -1,24 +1,3 @@
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
-//
-// Copyright (c) 2024 - 2025 Upside Down Labs - contact@upsidedownlabs.tech
-// Author: Deepak Khatri
-//
-// At Upside Down Labs, we create open-source DIY neuroscience hardware and software.
-// Our mission is to make neuroscience affordable and accessible for everyone.
-// By supporting us with your purchase, you help spread innovation and open science.
-// Thank you for being part of this journey with us!
-
 #include "FspTimer.h"
 #include <Arduino.h>
 
@@ -26,11 +5,11 @@
 #define NUM_CHANNELS 6                                  // Number of channels supported
 #define HEADER_LEN 3                                    // Header = SYNC_BYTE_1 + SYNC_BYTE_2 + Counter
 #define PACKET_LEN (NUM_CHANNELS * 2 + HEADER_LEN + 1)  // Packet length = Header + Data + END_BYTE
-#define SAMP_RATE 500.0                                 // Sampling rate (250/500 for UNO R4)
-#define SYNC_BYTE_1 0xC7                                // Packet first byte
-#define SYNC_BYTE_2 0x7C                                // Packet second byte
-#define END_BYTE 0x01                                   // Packet last byte
-#define BAUD_RATE 230400                                // Serial connection baud rate
+#define SAMP_RATE 512.0                                 // Sampling rate (250/500 for UNO R4)
+#define SYNC_BYTE_1 0xC7                                
+#define SYNC_BYTE_2 0x7C                                
+#define END_BYTE 0x01                                   
+#define BAUD_RATE 230400                                
 
 // Global constants and variables
 uint8_t packetBuffer[PACKET_LEN];  // The transmission packet
