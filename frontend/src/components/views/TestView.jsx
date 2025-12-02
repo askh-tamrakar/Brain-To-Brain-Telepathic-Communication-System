@@ -38,8 +38,14 @@ export default function TestView() {
   }, [])
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Test LiveView</h1>
+    <div className="space-y-6">
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
+        <h1 className="text-3xl font-bold text-text mb-2 flex items-center gap-3">
+          <span className="w-3 h-3 rounded-full bg-primary animate-pulse"></span>
+          Test LiveView
+        </h1>
+        <p className="text-muted">Testing live signal visualization with mock data</p>
+      </div>
       <LiveView wsData={wsData} />
     </div>
   )

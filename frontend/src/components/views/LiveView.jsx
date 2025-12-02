@@ -139,22 +139,25 @@ export default function LiveView({ wsData }) {
   }, [displayMode, selectedChannel, eegByChannel])
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex gap-2 items-center">
+    <div className="space-y-6">
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex gap-3 items-center flex-wrap">
             <button
               onClick={() => setIsPaused(!isPaused)}
-              className={`px-4 py-2 rounded-lg font-medium ${isPaused ? 'bg-green-600' : 'bg-yellow-600'} text-white`}
+              className={`px-6 py-3 rounded-xl font-bold transition-all shadow-glow ${isPaused
+                  ? 'bg-accent text-primary-contrast hover:opacity-90'
+                  : 'bg-primary text-primary-contrast hover:opacity-90'
+                }`}
             >
               {isPaused ? '▶ Resume' : '⏸ Pause'}
             </button>
 
-            <label className="text-sm text-gray-600 ml-2">Time window:</label>
+            <label className="text-sm font-bold text-text">Time window:</label>
             <select
               value={timeWindowMs}
               onChange={(e) => setTimeWindowMs(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg"
+              className="px-4 py-3 bg-bg border border-border text-text rounded-xl focus:ring-2 focus:ring-primary/50 outline-none"
             >
               <option value={5000}>5 s</option>
               <option value={10000}>10 s</option>
@@ -163,37 +166,39 @@ export default function LiveView({ wsData }) {
             </select>
           </div>
 
-          <div className="flex gap-4 items-center">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">EEG Display:</label>
-              <label className="flex items-center gap-1">
+          <div className="flex gap-6 items-center flex-wrap">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-bold text-text">EEG Display:</label>
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
                   name="displayMode"
                   value="single"
                   checked={displayMode === 'single'}
                   onChange={() => setDisplayMode('single')}
+                  className="w-5 h-5 text-primary"
                 />
-                <span className="text-sm ml-1">Single</span>
+                <span className="text-sm font-medium text-text">Single</span>
               </label>
-              <label className="flex items-center gap-1">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
                   name="displayMode"
                   value="overlay"
                   checked={displayMode === 'overlay'}
                   onChange={() => setDisplayMode('overlay')}
+                  className="w-5 h-5 text-primary"
                 />
-                <span className="text-sm ml-1">Overlay all</span>
+                <span className="text-sm font-medium text-text">Overlay all</span>
               </label>
             </div>
 
-            <div>
-              <label className="text-sm text-gray-600 mr-2">Channel:</label>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-bold text-text">Channel:</label>
               <select
                 value={selectedChannel}
                 onChange={(e) => setSelectedChannel(Number(e.target.value))}
-                className="px-2 py-1 border rounded"
+                className="px-3 py-2 bg-bg border border-border text-text rounded-lg outline-none"
                 disabled={displayMode === 'overlay'}
               >
                 {knownEegChannels.length === 0 && <option value={0}>0</option>}
