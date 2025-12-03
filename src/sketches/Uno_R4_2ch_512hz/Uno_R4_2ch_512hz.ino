@@ -5,7 +5,7 @@
  * Configuration:
  * - 2 Channels (A0, A1) - Fp1, Fp2
  * - Sampling Rate: 512 Hz (every 1.953 ms)
- * - Packet Size: 10 bytes (vs 16 for 6-channel)
+ * - Packet Size: 8 bytes (vs 16 for 6-channel)
  * - More data, faster updates!
  */
 
@@ -15,7 +15,7 @@
 // ===== CONFIGURATION =====
 #define NUM_CHANNELS 2              // REDUCED to 2 channels
 #define HEADER_LEN 3
-#define PACKET_LEN (NUM_CHANNELS * 2 + HEADER_LEN + 1)  // = 10 bytes (was 16)
+#define PACKET_LEN (NUM_CHANNELS * 2 + HEADER_LEN + 1)  // = 8 bytes (was 16)
 #define SAMP_RATE 512.0             // INCREASED to 512 Hz (was 500)
 #define SYNC_BYTE_1 0xC7
 #define SYNC_BYTE_2 0x7C
@@ -132,7 +132,7 @@ void setup() {
   Serial.println("\n=== 2-CHANNEL BCI @ 512 Hz ===");
   Serial.println("Channels: 2 (A0, A1)");
   Serial.println("Sampling: 512 Hz");
-  Serial.println("Packet Size: 10 bytes");
+  Serial.println("Packet Size: 8 bytes");
   Serial.println("Data Rate: 5120 bytes/sec");
   Serial.println("Ready for brain typing!");
 }

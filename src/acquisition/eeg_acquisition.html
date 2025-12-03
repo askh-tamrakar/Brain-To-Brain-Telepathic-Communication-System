@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSVEP EEG Data Acquisition</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 0;
+        }
+
+        .control-panel {
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            padding: 25px;
+            overflow-y: auto;
+            max-height: calc(100vh - 150px);
+        }
+
+        .control-section {
+            margin-bottom: 25px;
+        }
+
+        .control-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #667eea;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+
+        select,
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+            color: #2d3748;
+            transition: border-color 0.2s;
+        }
+
+        select:focus,
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .button-group.full {
+            grid-template-columns: 1fr;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #38a169;
+            box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-success:disabled {
+            background: #cbd5e0;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+            box-shadow: 0 4px 12px rgba(245, 101, 101, 0.4);
+        }
+
+        .btn-danger:disabled {
+            background: #cbd5e0;
+        }
+
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #dd6b20;
+            box-shadow: 0 4px 12px rgba(237, 137, 54, 0.4);
+        }
+
+        .status-box {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .status-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #718096;
+            margin-bottom: 6px;
+        }
+
+        .status-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #2d3748;
+            word-break: break-all;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .indicator-connected {
+            background: #48bb78;
+            animation: pulse-green 2s infinite;
+        }
+
+        .indicator-disconnected {
+            background: #cbd5e0;
+        }
+
+        .indicator-recording {
+            background: #f56565;
+            animation: pulse-red 0.5s infinite;
+        }
+
+        @keyframes pulse-green {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        @keyframes pulse-red {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-item {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #718096;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .visualization-area {
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .chart-container {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 12px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 250px;
+        }
+
+        .info-message {
+            background: #edf2f7;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #2d3748;
+            margin-bottom: 15px;
+        }
+
+        .error-message {
+            background: #fed7d7;
+            border-left: 4px solid #f56565;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #742a2a;
+            margin-bottom: 15px;
+        }
+
+        .success-message {
+            background: #c6f6d5;
+            border-left: 4px solid #48bb78;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #22543d;
+            margin-bottom: 15px;
+        }
+
+        .data-table {
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        tr:hover {
+            background: #f7fafc;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            padding: 15px 25px;
+            font-size: 12px;
+            color: #718096;
+            text-align: center;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 15px;
+        }
+
+        .modal-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .control-panel {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+                max-height: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ SSVEP EEG Data Acquisition System</h1>
+            <p>Real-time 2-Channel Biosignal Recording (512 Hz) | 8-Byte Packets</p>
+        </div>
+
+        <div class="main-content">
+            <!-- CONTROL PANEL -->
+            <div class="control-panel">
+                <!-- Connection Section -->
+                <div class="control-section">
+                    <div class="control-section-title">Connection</div>
+                    <div class="form-group">
+                        <label for="comPort">COM Port</label>
+                        <select id="comPort">
+                            <option value="">-- Auto Detect --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="baudRate">Baud Rate</label>
+                        <input type="number" id="baudRate" value="230400" readonly>
+                    </div>
+                    <div class="button-group full">
+                        <button class="btn-primary" id="connectBtn" onclick="connectDevice()">Connect</button>
+                        <button class="btn-danger" id="disconnectBtn" onclick="disconnectDevice()"
+                            disabled>Disconnect</button>
+                    </div>
+                </div>
+
+                <!-- Status Section -->
+                <div class="control-section">
+                    <div class="control-section-title">Status</div>
+                    <div class="status-box">
+                        <div class="status-label">Connection</div>
+                        <div class="status-value">
+                            <span class="status-indicator indicator-disconnected"></span>
+                            <span id="connectionStatus">Disconnected</span>
+                        </div>
+                    </div>
+                    <div class="status-box">
+                        <div class="status-label">Recording</div>
+                        <div class="status-value">
+                            <span class="status-indicator indicator-disconnected" id="recordingIndicator"></span>
+                            <span id="recordingStatus">Idle</span>
+                        </div>
+                    </div>
+                    <div class="status-box">
+                        <div class="status-label">Device Info</div>
+                        <div class="status-value" id="deviceInfo" style="font-size: 12px;">
+                            Not connected
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Acquisition Section -->
+                <div class="control-section">
+                    <div class="control-section-title">Acquisition</div>
+                    <div class="button-group full">
+                        <button class="btn-success" id="startBtn" onclick="startAcquisition()" disabled>Start</button>
+                        <button class="btn-danger" id="stopBtn" onclick="stopAcquisition()" disabled>Stop</button>
+                    </div>
+                </div>
+
+                <!-- Recording Section -->
+                <div class="control-section">
+                    <div class="control-section-title">Data Logging</div>
+                    <div class="form-group">
+                        <label for="sessionName">Session Name</label>
+                        <input type="text" id="sessionName" placeholder="e.g., SSVEP_Subject_01">
+                    </div>
+                    <div class="button-group full">
+                        <button class="btn-warning" id="recordBtn" onclick="startRecording()" disabled>Record</button>
+                        <button class="btn-danger" id="stopRecordBtn" onclick="stopRecording()" disabled>Stop
+                            Rec</button>
+                    </div>
+                    <button class="btn-primary" style="width: 100%; margin-top: 10px;" onclick="saveData()">Save
+                        Data</button>
+                </div>
+
+                <!-- Statistics Section -->
+                <div class="control-section">
+                    <div class="control-section-title">Statistics</div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-label">Packets</div>
+                            <div class="stat-value" id="packetCount">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Samples</div>
+                            <div class="stat-value" id="sampleCount">0</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button class="btn-primary" style="width: 100%;" onclick="resetCounters()">Reset</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISUALIZATION AREA -->
+            <div class="visualization-area">
+                <div id="messageArea"></div>
+
+                <!-- Raw Signal Chart -->
+                <div class="chart-container">
+                    <div class="chart-title">📊 Real-time Raw EEG Signal</div>
+                    <div class="chart-wrapper">
+                        <canvas id="signalChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Frequency Spectrum Chart -->
+                <div class="chart-container">
+                    <div class="chart-title">📈 Frequency Spectrum (FFT)</div>
+                    <div class="chart-wrapper">
+                        <canvas id="spectrumChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Packet Details Table -->
+                <div class="chart-container">
+                    <div class="chart-title">📋 Latest Packet Details</div>
+                    <div class="data-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Value</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="packetDetailsTable">
+                                <tr>
+                                    <td colspan="3" style="text-align: center; color: #718096;">Waiting for data...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            ✓ 2 Channels (O1, O2) | 512 Hz Sampling | 8-byte Packets | 4096 bytes/sec | Protocol v1.0
+        </div>
+    </div>
+
+    <script>
+        // ============ CONFIGURATION ============
+        const CONFIG = {
+            PACKET_SIZE: 8,
+            SYNC_BYTE_1: 0xC7,
+            SYNC_BYTE_2: 0x7C,
+            END_BYTE: 0x01,
+            SAMP_RATE: 512,
+            NUM_CHANNELS: 2,
+            CHART_POINTS: 512,
+            FFT_SIZE: 512
+        };
+
+        // ============ STATE ============
+        let state = {
+            isConnected: false,
+            isRecording: false,
+            isAcquiring: false,
+            serialPort: null,
+            reader: null,
+            writer: null,
+            buffer: new Uint8Array(1024),
+            bufferIndex: 0,
+            packets: [],
+            samples: { ch0: [], ch1: [] },
+            packetCount: 0,
+            sampleCount: 0,
+            recordedData: [],
+            charts: {}
+        };
+
+        // ============ INITIALIZATION ============
+        window.addEventListener('load', initializeUI);
+
+        async function initializeUI() {
+            await detectComPorts();
+            initializeCharts();
+            showMessage('System initialized. Ready to connect.', 'info');
+        }
+
+        // ============ SERIAL PORT DETECTION ============
+        async function detectComPorts() {
+            if (!navigator.serial) {
+                showMessage('Web Serial API not supported. Use Chrome/Edge/Opera.', 'error');
+                return;
+            }
+
+            try {
+                const ports = await navigator.serial.getPorts();
+                const portSelect = document.getElementById('comPort');
+                portSelect.innerHTML = '<option value="">-- Auto Detect --</option>';
+
+                if (ports.length === 0) {
+                    portSelect.innerHTML += '<option value="">No ports detected</option>';
+                }
+            } catch (error) {
+                console.error('Error detecting ports:', error);
+            }
+        }
+
+        // ============ CONNECTION MANAGEMENT ============
+        async function connectDevice() {
+            try {
+                state.serialPort = await navigator.serial.requestPort();
+
+                await state.serialPort.open({
+                    baudRate: 230400,
+                    dataBits: 8,
+                    stopBits: 1,
+                    parity: 'none',
+                    flowControl: 'none'
+                });
+
+                state.reader = state.serialPort.readable.getReader();
+                state.writer = state.serialPort.writable.getWriter();
+
+                state.isConnected = true;
+                updateConnectionUI();
+
+                // Query device info
+                await writeCommand('WHORU\n');
+                await new Promise(r => setTimeout(r, 500));
+                await writeCommand('CONFIG\n');
+
+                // Start listening for data
+                readSerialData();
+
+                showMessage('✓ Connected successfully!', 'success');
+            } catch (error) {
+                showMessage(`Connection failed: ${error.message}`, 'error');
+                state.isConnected = false;
+                updateConnectionUI();
+            }
+        }
+
+        async function disconnectDevice() {
+            try {
+                if (state.isAcquiring) {
+                    await writeCommand('STOP\n');
+                    state.isAcquiring = false;
+                }
+
+                if (state.reader) {
+                    await state.reader.cancel();
+                }
+
+                if (state.writer) {
+                    await state.writer.releaseLock();
+                }
+
+                if (state.serialPort) {
+                    await state.serialPort.close();
+                }
+
+                state.isConnected = false;
+                updateConnectionUI();
+                showMessage('Disconnected successfully', 'info');
+            } catch (error) {
+                showMessage(`Disconnection error: ${error.message}`, 'error');
+            }
+        }
+
+        async function writeCommand(command) {
+            try {
+                if (!state.writer) return;
+                const encoder = new TextEncoder();
+                await state.writer.write(encoder.encode(command));
+            } catch (error) {
+                console.error('Write error:', error);
+            }
+        }
+
+        async function readSerialData() {
+            try {
+                while (state.isConnected && state.reader) {
+                    const { value, done } = await state.reader.read();
+
+                    if (done) break;
+
+                    for (let byte of value) {
+                        // Parse packet
+                        if (state.bufferIndex < 8) {
+                            state.buffer[state.bufferIndex] = byte;
+                            state.bufferIndex++;
+
+                            if (state.bufferIndex === CONFIG.PACKET_SIZE) {
+                                processPacket(state.buffer.slice(0, CONFIG.PACKET_SIZE));
+                                state.bufferIndex = 0;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                if (error.name !== 'NetworkError') {
+                    console.error('Read error:', error);
+                }
+            }
+        }
+
+        // ============ PACKET PROCESSING ============
+        function processPacket(packet) {
+            // Validate packet
+            if (packet[0] !== CONFIG.SYNC_BYTE_1 || packet[1] !== CONFIG.SYNC_BYTE_2 || packet[7] !== CONFIG.END_BYTE) {
+                return; // Invalid packet
+            }
+
+            state.packetCount++;
+            document.getElementById('packetCount').textContent = state.packetCount;
+
+            // Extract channel data
+            const counter = packet[2];
+            const ch0 = (packet[3] << 8) | packet[4];
+            const ch1 = (packet[5] << 8) | packet[6];
+
+            // Convert from 14-bit ADC to voltage (0-3.3V)
+            const ch0_uv = ((ch0 / 16384) * 3300) - 1650;
+            const ch1_uv = ((ch1 / 16384) * 3300) - 1650;
+
+            state.samples.ch0.push(ch0_uv);
+            state.samples.ch1.push(ch1_uv);
+            state.sampleCount += 2;
+
+            document.getElementById('sampleCount').textContent = state.sampleCount;
+
+            // Keep only last 512 points for visualization
+            if (state.samples.ch0.length > CONFIG.CHART_POINTS) {
+                state.samples.ch0.shift();
+                state.samples.ch1.shift();
+            }
+
+            // Update displays
+            updateSignalChart();
+            updateSpectrumChart();
+            updatePacketDetails(packet, counter, ch0_uv, ch1_uv);
+
+            // Log data if recording
+            if (state.isRecording) {
+                state.recordedData.push({
+                    timestamp: Date.now(),
+                    counter,
+                    ch0: ch0_uv,
+                    ch1: ch1_uv,
+                    raw_ch0: ch0,
+                    raw_ch1: ch1
+                });
+            }
+        }
+
+        function updatePacketDetails(packet, counter, ch0, ch1) {
+            const html = `
+                <tr>
+                    <td>Sync Byte 1</td>
+                    <td>0x${packet[0].toString(16).toUpperCase().padStart(2, '0')}</td>
+                    <td>Should be 0xC7</td>
+                </tr>
+                <tr>
+                    <td>Sync Byte 2</td>
+                    <td>0x${packet[1].toString(16).toUpperCase().padStart(2, '0')}</td>
+                    <td>Should be 0x7C</td>
+                </tr>
+                <tr>
+                    <td>Counter</td>
+                    <td>${counter}</td>
+                    <td>Packet sequence</td>
+                </tr>
+                <tr>
+                    <td>CH0 (Raw)</td>
+                    <td>${packet[3]} | ${packet[4]} (bytes)</td>
+                    <td>O1 Raw ADC value</td>
+                </tr>
+                <tr>
+                    <td>CH0 (Processed)</td>
+                    <td>${ch0.toFixed(2)} µV</td>
+                    <td>O1 Voltage</td>
+                </tr>
+                <tr>
+                    <td>CH1 (Raw)</td>
+                    <td>${packet[5]} | ${packet[6]} (bytes)</td>
+                    <td>O2 Raw ADC value</td>
+                </tr>
+                <tr>
+                    <td>CH1 (Processed)</td>
+                    <td>${ch1.toFixed(2)} µV</td>
+                    <td>O2 Voltage</td>
+                </tr>
+                <tr>
+                    <td>End Byte</td>
+                    <td>0x${packet[7].toString(16).toUpperCase().padStart(2, '0')}</td>
+                    <td>Should be 0x01</td>
+                </tr>
+            `;
+            document.getElementById('packetDetailsTable').innerHTML = html;
+        }
+
+        // ============ ACQUISITION CONTROL ============
+        async function startAcquisition() {
+            try {
+                await writeCommand('START\n');
+                state.isAcquiring = true;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('recordingIndicator').className = 'status-indicator indicator-recording';
+                document.getElementById('recordingStatus').textContent = 'Acquiring';
+                showMessage('✓ Data acquisition started', 'success');
+            } catch (error) {
+                showMessage(`Start failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function stopAcquisition() {
+            try {
+                await writeCommand('STOP\n');
+                state.isAcquiring = false;
+                state.isRecording = false;
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('stopRecordBtn').disabled = true;
+                document.getElementById('recordingIndicator').className = 'status-indicator indicator-disconnected';
+                document.getElementById('recordingStatus').textContent = 'Idle';
+                showMessage('Data acquisition stopped', 'info');
+            } catch (error) {
+                showMessage(`Stop failed: ${error.message}`, 'error');
+            }
+        }
+
+        // ============ RECORDING CONTROL ============
+        function startRecording() {
+            state.recordedData = [];
+            state.isRecording = true;
+            document.getElementById('recordBtn').disabled = true;
+            document.getElementById('stopRecordBtn').disabled = false;
+            showMessage('✓ Recording started', 'success');
+        }
+
+        function stopRecording() {
+            state.isRecording = false;
+            document.getElementById('recordBtn').disabled = false;
+            document.getElementById('stopRecordBtn').disabled = true;
+            showMessage(`Stopped recording. ${state.recordedData.length} samples captured.`, 'info');
+        }
+
+        function saveData() {
+            if (state.recordedData.length === 0) {
+                showMessage('No data to save', 'error');
+                return;
+            }
+
+            const sessionName = document.getElementById('sessionName').value || 'SSVEP_Session_' + Date.now();
+
+            // Create CSV
+            let csv = 'Timestamp,Counter,CH0_uV,CH1_uV,Raw_CH0,Raw_CH1\n';
+            state.recordedData.forEach(sample => {
+                csv += `${sample.timestamp},${sample.counter},${sample.ch0.toFixed(2)},${sample.ch1.toFixed(2)},${sample.raw_ch0},${sample.raw_ch1}\n`;
+            });
+
+            // Download
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${sessionName}_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            showMessage(`✓ Data saved: ${a.download}`, 'success');
+        }
+
+        // ============ CHART INITIALIZATION ============
+        function initializeCharts() {
+            // Signal Chart
+            const signalCtx = document.getElementById('signalChart').getContext('2d');
+            state.charts.signal = new Chart(signalCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'CH0 (O1)',
+                            data: [],
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'CH1 (O2)',
+                            data: [],
+                            borderColor: '#f56565',
+                            backgroundColor: 'rgba(245, 101, 101, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            yAxisID: 'y'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#e9ecef' } },
+                        x: { grid: { color: '#e9ecef' }, display: true }
+                    }
+                }
+            });
+
+            // Spectrum Chart
+            const spectrumCtx = document.getElementById('spectrumChart').getContext('2d');
+            state.charts.spectrum = new Chart(spectrumCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Magnitude (µV)',
+                            data: [],
+                            backgroundColor: '#667eea',
+                            borderRadius: 4,
+                            borderSkipped: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: true } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#e9ecef' } },
+                        x: { grid: { color: '#e9ecef' }, display: true }
+                    }
+                }
+            });
+        }
+
+        function updateSignalChart() {
+            if (!state.charts.signal || state.samples.ch0.length === 0) return;
+
+            state.charts.signal.data.labels = Array.from({ length: state.samples.ch0.length }, (_, i) => i);
+            state.charts.signal.data.datasets[0].data = state.samples.ch0;
+            state.charts.signal.data.datasets[1].data = state.samples.ch1;
+            state.charts.signal.update('none');
+        }
+
+        function updateSpectrumChart() {
+            if (!state.charts.spectrum || state.samples.ch0.length < CONFIG.FFT_SIZE) return;
+
+            // Simple magnitude spectrum (placeholder FFT)
+            const fft_ch0 = simpleFFT(state.samples.ch0.slice(-CONFIG.FFT_SIZE));
+            const freqs = Array.from({ length: 128 }, (_, i) => (i * CONFIG.SAMP_RATE / CONFIG.FFT_SIZE).toFixed(1));
+
+            state.charts.spectrum.data.labels = freqs;
+            state.charts.spectrum.data.datasets[0].data = fft_ch0.slice(0, 128);
+            state.charts.spectrum.update('none');
+        }
+
+        function simpleFFT(signal) {
+            // Simplified magnitude spectrum calculation
+            const spectrum = new Array(signal.length / 2).fill(0);
+            for (let i = 0; i < signal.length; i++) {
+                spectrum[Math.floor(i / 2)] += Math.abs(signal[i]) / (signal.length / 2);
+            }
+            return spectrum;
+        }
+
+        // ============ UI UPDATES ============
+        function updateConnectionUI() {
+            const connected = state.isConnected;
+
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+            document.getElementById('startBtn').disabled = !connected;
+            document.getElementById('stopBtn').disabled = true;
+
+            const indicator = document.querySelector('.status-indicator');
+            if (connected) {
+                indicator.className = 'status-indicator indicator-connected';
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('deviceInfo').textContent = 'UNO R4 @ 230400 baud';
+            } else {
+                indicator.className = 'status-indicator indicator-disconnected';
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                document.getElementById('deviceInfo').textContent = 'Not connected';
+            }
+        }
+
+        function resetCounters() {
+            state.packetCount = 0;
+            state.sampleCount = 0;
+            state.samples.ch0 = [];
+            state.samples.ch1 = [];
+            state.recordedData = [];
+            document.getElementById('packetCount').textContent = '0';
+            document.getElementById('sampleCount').textContent = '0';
+            showMessage('Counters reset', 'info');
+        }
+
+        function showMessage(message, type = 'info') {
+            const messageArea = document.getElementById('messageArea');
+            const className = `${type}-message`;
+            const html = `<div class="${className}">${message}</div>`;
+            messageArea.innerHTML = html;
+
+            if (type !== 'error') {
+                setTimeout(() => { messageArea.innerHTML = ''; }, 3000);
+            }
+        }
+    </script>
+</body>
