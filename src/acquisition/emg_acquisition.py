@@ -1,543 +1,441 @@
 """
-EMG Data Acquisition Application (OPTIMIZED)
-Arduino Serial Communication with PyQt5 GUI
-Saves EMG data to JSON with timestamps
+EMG Data Acquisition with Real-Time ECG-Style Visualization
+Tkinter GUI + Matplotlib + Arduino Serial Communication
+Production-Ready Application
 
 Author: EMG Team
 Date: 2024-12-04
-Version: 2.0 (Fixed & Optimized)
+Version: 3.0 (With Live Graph Visualization)
 """
 
-import sys
-import json
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, scrolledtext
 import serial
 import serial.tools.list_ports
+import json
 import threading
 import time
+import numpy as np
 from datetime import datetime
 from pathlib import Path
 from collections import deque
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QComboBox, QLabel, QTextEdit, QSpinBox, QFileDialog,
-    QMessageBox, QGroupBox, QStatusBar, QProgressBar
-)
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QObject, QTimer, QMutex
-from PyQt5.QtGui import QFont, QColor, QIcon
+import matplotlib
+matplotlib.use('TkAgg')  # Must be before importing pyplot
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 
-class SerialWorker(QObject):
-    """Worker thread for serial communication (FIXED)"""
+class EMGVisualizationApp:
+    """EMG Application with Real-Time ECG-Style Graph"""
     
-    # Signals
-    data_received = pyqtSignal(dict)
-    status_changed = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    packet_count_updated = pyqtSignal(int)
-    acquisition_finished = pyqtSignal()
-    
-    def __init__(self, buffer_size=1000):
-        super().__init__()
-        self.ser = None
-        self.is_running = False
-        self.packet_count = 0
-        self.data_buffer = deque(maxlen=buffer_size)  # Circular buffer
-        self.mutex = QMutex()  # Thread-safe access
+    def __init__(self, root):
+        self.root = root
+        self.root.title("EMG Signal Acquisition - Real-Time Visualization")
+        self.root.geometry("1600x900")
+        self.root.configure(bg='#f0f0f0')
         
-    def connect_port(self, port, baudrate):
-        """Establish serial connection"""
-        try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=0.1,  # Reduced from 1 for faster response
-                write_timeout=0.1
-            )
-            self.ser.reset_input_buffer()
-            self.ser.reset_output_buffer()
-            self.status_changed.emit(f"Connected to {port} @ {baudrate} baud")
-            return True
-        except Exception as e:
-            self.error_occurred.emit(f"Connection failed: {str(e)}")
-            return False
+        # Serial connection
+        self.ser = None
+        self.acquisition_active = False
+        self.acquisition_thread = None
+        self.debug_mode = tk.BooleanVar(value=False)
+        
+        # Data storage
+        self.session_data = []
+        self.session_start_time = None
+        self.packet_count = 0
+        
+        # Graph buffers (circular - last 1024 samples = 2 seconds @ 512 Hz)
+        self.graph_buffer_ch0 = deque(maxlen=1024)
+        self.graph_buffer_ch1 = deque(maxlen=1024)
+        self.graph_time_buffer = deque(maxlen=1024)
+        self.graph_index = 0
+        
+        # Packet format constants
+        self.PACKET_LEN = 8
+        self.SYNC_BYTE_1 = 0xC7
+        self.SYNC_BYTE_2 = 0x7C
+        self.END_BYTE = 0x01
+        self.SAMPLING_RATE = 512.0
+        self.BAUD_RATE = 230400
+        
+        # Setup UI
+        self.setup_ui()
+        self.update_port_list()
+        
+        # Start graph update timer (30ms = ~33 FPS)
+        self.root.after(30, self.update_graph_display)
+        
+    def setup_ui(self):
+        """Create the user interface with left control panel and right graph"""
+        
+        # Main container
+        main_frame = ttk.Frame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # LEFT COLUMN: Controls (narrower)
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side="left", fill="both", expand=False, padx=5, ipadx=10)
+        
+        # RIGHT COLUMN: Graph (wider)
+        right_frame = ttk.Frame(main_frame)
+        right_frame.pack(side="right", fill="both", expand=True, padx=5)
+        
+        # ===== LEFT COLUMN: CONNECTION & CONTROL =====
+        
+        # Connection settings
+        connection_frame = ttk.LabelFrame(left_frame, text="🔌 Connection", padding="10")
+        connection_frame.pack(fill="x", padx=0, pady=5)
+        
+        ttk.Label(connection_frame, text="COM Port:", font=("Arial", 9)).pack(anchor="w", padx=5, pady=2)
+        self.port_var = tk.StringVar()
+        self.port_combo = ttk.Combobox(connection_frame, textvariable=self.port_var, width=25, state="readonly")
+        self.port_combo.pack(fill="x", padx=5, pady=2)
+        
+        self.refresh_btn = ttk.Button(connection_frame, text="🔄 Refresh Ports", command=self.update_port_list)
+        self.refresh_btn.pack(fill="x", padx=5, pady=2)
+        
+        ttk.Label(connection_frame, text="Baud: 230400 (Fixed)", font=("Arial", 8)).pack(anchor="w", padx=5)
+        
+        # Status
+        status_frame = ttk.LabelFrame(left_frame, text="📊 Status", padding="10")
+        status_frame.pack(fill="x", padx=0, pady=5)
+        
+        ttk.Label(status_frame, text="Connection:").pack(anchor="w", padx=5, pady=1)
+        self.status_label = ttk.Label(status_frame, text="❌ Disconnected", foreground="red", font=("Arial", 10, "bold"))
+        self.status_label.pack(anchor="w", padx=5, pady=1)
+        
+        ttk.Label(status_frame, text="Packets:").pack(anchor="w", padx=5, pady=1)
+        self.packet_label = ttk.Label(status_frame, text="0", font=("Arial", 10, "bold"))
+        self.packet_label.pack(anchor="w", padx=5, pady=1)
+        
+        ttk.Label(status_frame, text="Duration:").pack(anchor="w", padx=5, pady=1)
+        self.duration_label = ttk.Label(status_frame, text="00:00:00", font=("Arial", 10, "bold"))
+        self.duration_label.pack(anchor="w", padx=5, pady=1)
+        
+        ttk.Label(status_frame, text="Rate:").pack(anchor="w", padx=5, pady=1)
+        self.rate_label = ttk.Label(status_frame, text="0 Hz", font=("Arial", 10, "bold"))
+        self.rate_label.pack(anchor="w", padx=5, pady=1)
+        
+        # Control buttons
+        control_frame = ttk.LabelFrame(left_frame, text="⚙️ Control", padding="10")
+        control_frame.pack(fill="x", padx=0, pady=5)
+        
+        self.connect_btn = ttk.Button(control_frame, text="🔌 Connect", command=self.connect_arduino)
+        self.connect_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.disconnect_btn = ttk.Button(control_frame, text="❌ Disconnect", command=self.disconnect_arduino, state="disabled")
+        self.disconnect_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.start_btn = ttk.Button(control_frame, text="▶️  Start", command=self.start_acquisition, state="disabled", width=15)
+        self.start_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.stop_btn = ttk.Button(control_frame, text="⏹️  Stop", command=self.stop_acquisition, state="disabled", width=15)
+        self.stop_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.save_btn = ttk.Button(control_frame, text="💾 Save", command=self.save_session_data, state="disabled", width=15)
+        self.save_btn.pack(fill="x", padx=2, pady=2)
+        
+        # Statistics
+        stats_frame = ttk.LabelFrame(left_frame, text="📈 Stats", padding="10")
+        stats_frame.pack(fill="both", expand=True, padx=0, pady=5)
+        
+        ttk.Label(stats_frame, text="Channel 0 (Flexor):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
+        self.ch0_min_label = ttk.Label(stats_frame, text="Min: 0", font=("Arial", 8))
+        self.ch0_min_label.pack(anchor="w", padx=5, pady=0)
+        self.ch0_max_label = ttk.Label(stats_frame, text="Max: 0", font=("Arial", 8))
+        self.ch0_max_label.pack(anchor="w", padx=5, pady=0)
+        self.ch0_mean_label = ttk.Label(stats_frame, text="Mean: 0", font=("Arial", 8))
+        self.ch0_mean_label.pack(anchor="w", padx=5, pady=2)
+        
+        ttk.Label(stats_frame, text="Channel 1 (Extensor):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
+        self.ch1_min_label = ttk.Label(stats_frame, text="Min: 0", font=("Arial", 8))
+        self.ch1_min_label.pack(anchor="w", padx=5, pady=0)
+        self.ch1_max_label = ttk.Label(stats_frame, text="Max: 0", font=("Arial", 8))
+        self.ch1_max_label.pack(anchor="w", padx=5, pady=0)
+        self.ch1_mean_label = ttk.Label(stats_frame, text="Mean: 0", font=("Arial", 8))
+        self.ch1_mean_label.pack(anchor="w", padx=5, pady=2)
+        
+        # ===== RIGHT COLUMN: REAL-TIME GRAPH =====
+        
+        graph_frame = ttk.LabelFrame(right_frame, text="📡 Real-Time EMG Signal (512 Hz)", padding="5")
+        graph_frame.pack(fill="both", expand=True, padx=0, pady=0)
+        
+        # Create matplotlib figure
+        self.fig = Figure(figsize=(10, 6), dpi=100, facecolor='white')
+        self.fig.patch.set_facecolor('#f0f0f0')
+        
+        # Subplot for Ch0 (Flexor)
+        self.ax_ch0 = self.fig.add_subplot(211)
+        self.line_ch0, = self.ax_ch0.plot([], [], color='#2E86AB', linewidth=1.5, label='Ch0 (Flexor)')
+        self.ax_ch0.set_ylabel('ADC Value', fontsize=10)
+        self.ax_ch0.set_ylim(0, 16384)
+        self.ax_ch0.grid(True, alpha=0.3, linestyle='--')
+        self.ax_ch0.legend(loc='upper left', fontsize=9)
+        self.ax_ch0.set_title('Channel 0: Forearm Flexor (Inside)', fontsize=10, fontweight='bold')
+        
+        # Subplot for Ch1 (Extensor)
+        self.ax_ch1 = self.fig.add_subplot(212)
+        self.line_ch1, = self.ax_ch1.plot([], [], color='#A23B72', linewidth=1.5, label='Ch1 (Extensor)')
+        self.ax_ch1.set_xlabel('Time (samples)', fontsize=10)
+        self.ax_ch1.set_ylabel('ADC Value', fontsize=10)
+        self.ax_ch1.set_ylim(0, 16384)
+        self.ax_ch1.grid(True, alpha=0.3, linestyle='--')
+        self.ax_ch1.legend(loc='upper left', fontsize=9)
+        self.ax_ch1.set_title('Channel 1: Forearm Extensor (Outside)', fontsize=10, fontweight='bold')
+        
+        self.fig.tight_layout()
+        
+        # Embed matplotlib in tkinter
+        self.canvas = FigureCanvasTkAgg(self.fig, master=graph_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+    def update_port_list(self):
+        """Refresh available COM ports"""
+        ports = []
+        for port, desc, hwid in serial.tools.list_ports.comports():
+            ports.append(f"{port} - {desc}")
+        
+        self.port_combo['values'] = ports if ports else ["No ports found"]
+        if ports:
+            self.port_combo.current(0)
     
-    def disconnect_port(self):
-        """Close serial connection"""
+    def connect_arduino(self):
+        """Connect to Arduino"""
+        if not self.port_var.get():
+            messagebox.showerror("Error", "Select a COM port")
+            return
+        
+        port_name = self.port_var.get().split(" ")[0]
+        
+        try:
+            self.ser = serial.Serial(port_name, self.BAUD_RATE, timeout=1)
+            time.sleep(2)  # Arduino init time
+            self.ser.reset_input_buffer()
+            
+            self.status_label.config(text="✅ Connected", foreground="green")
+            self.connect_btn.config(state="disabled")
+            self.disconnect_btn.config(state="normal")
+            self.start_btn.config(state="normal")
+            
+            messagebox.showinfo("Success", f"Connected to {port_name}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Connection failed: {e}")
+            self.status_label.config(text="❌ Failed", foreground="red")
+    
+    def disconnect_arduino(self):
+        """Close connection"""
+        if self.acquisition_active:
+            self.stop_acquisition()
+        
         if self.ser and self.ser.is_open:
             self.ser.close()
-            self.status_changed.emit("Disconnected")
+        
+        self.status_label.config(text="❌ Disconnected", foreground="red")
+        self.connect_btn.config(state="normal")
+        self.disconnect_btn.config(state="disabled")
+        self.start_btn.config(state="disabled")
+        self.stop_btn.config(state="disabled")
     
-    def parse_packet(self, packet):
-        """Parse 8-byte EMG packet from Arduino"""
-        try:
-            if len(packet) != 8:
-                return None
-            
-            # Verify sync bytes
-            if packet[0] != 0xC7 or packet[1] != 0x7C:
-                return None
-            
-            # Verify end byte
-            if packet[7] != 0x01:
-                return None
-            
-            # Extract data (little-endian)
-            counter = packet[2]
-            ch0 = (packet[4] << 8) | packet[3]
-            ch1 = (packet[6] << 8) | packet[5]
-            
-            return {
-                'timestamp': datetime.now().isoformat(),
-                'counter': counter,
-                'channel_0': ch0,
-                'channel_1': ch1,
-                'unix_timestamp': time.time()
-            }
-        except Exception as e:
-            self.error_occurred.emit(f"Parse error: {str(e)}")
-            return None
-    
-    def run(self):
-        """Main read loop (FIXED: now properly executes in thread)"""
-        if not self.ser or not self.ser.is_open:
-            self.error_occurred.emit("Serial port not open")
-            return
-        
-        self.is_running = True
-        self.packet_count = 0
-        buffer = bytearray()
-        self.status_changed.emit("Acquisition started...")
-        
-        try:
-            while self.is_running:
-                # Non-blocking read with small timeout
-                if self.ser.in_waiting > 0:
-                    chunk = self.ser.read(self.ser.in_waiting)
-                    buffer.extend(chunk)
-                    
-                    # Process complete packets
-                    while len(buffer) >= 8:
-                        # Find sync bytes
-                        sync_index = -1
-                        for i in range(len(buffer) - 1):
-                            if buffer[i] == 0xC7 and buffer[i + 1] == 0x7C:
-                                sync_index = i
-                                break
-                        
-                        if sync_index == -1:
-                            buffer = bytearray()
-                            break
-                        
-                        if sync_index > 0:
-                            buffer = buffer[sync_index:]
-                        
-                        if len(buffer) < 8:
-                            break
-                        
-                        # Extract and parse packet
-                        packet = bytes(buffer[:8])
-                        buffer = buffer[8:]
-                        
-                        data = self.parse_packet(packet)
-                        if data:
-                            self.packet_count += 1
-                            
-                            # Thread-safe buffer update
-                            self.mutex.lock()
-                            self.data_buffer.append(data)
-                            self.mutex.unlock()
-                            
-                            # Emit signals with Qt.QueuedConnection
-                            self.data_received.emit(data)
-                            
-                            if self.packet_count % 10 == 0:
-                                self.packet_count_updated.emit(self.packet_count)
-                else:
-                    # Small sleep to prevent CPU spinning
-                    time.sleep(0.001)
-        
-        except Exception as e:
-            self.error_occurred.emit(f"Read error: {str(e)}")
-        finally:
-            self.is_running = False
-            self.status_changed.emit("Acquisition stopped")
-            self.acquisition_finished.emit()
-
-
-class EMGDataAcquisitionApp(QMainWindow):
-    """Main GUI Application (OPTIMIZED)"""
-    
-    def __init__(self):
-        super().__init__()
-        self.worker = None
-        self.serial_thread = None
-        self.session_data = []
-        self.last_display_update = 0
-        self.display_buffer = deque(maxlen=50)  # Circular buffer for display
-        self.start_time = None
-        self.init_ui()
-        self.refresh_ports()
-        
-    def init_ui(self):
-        """Initialize UI components"""
-        self.setWindowTitle("EMG Data Acquisition System - OPTIMIZED")
-        self.setGeometry(100, 100, 1000, 700)
-        
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        
-        # ===== Serial Configuration Group =====
-        config_group = QGroupBox("Serial Port Configuration")
-        config_layout = QHBoxLayout()
-        
-        config_layout.addWidget(QLabel("Port:"))
-        self.port_combo = QComboBox()
-        self.port_combo.setMinimumWidth(150)
-        config_layout.addWidget(self.port_combo)
-        
-        config_layout.addWidget(QLabel("Baud Rate:"))
-        self.baud_spinbox = QSpinBox()
-        self.baud_spinbox.setValue(230400)
-        self.baud_spinbox.setMinimum(9600)
-        self.baud_spinbox.setMaximum(921600)
-        self.baud_spinbox.setSingleStep(9600)
-        config_layout.addWidget(self.baud_spinbox)
-        
-        self.refresh_button = QPushButton("Refresh Ports")
-        self.refresh_button.clicked.connect(self.refresh_ports)
-        config_layout.addWidget(self.refresh_button)
-        config_layout.addStretch()
-        config_group.setLayout(config_layout)
-        main_layout.addWidget(config_group)
-        
-        # ===== Control Buttons =====
-        button_group = QGroupBox("Acquisition Controls")
-        button_layout = QHBoxLayout()
-        
-        self.connect_button = QPushButton("Connect")
-        self.connect_button.clicked.connect(self.connect_serial)
-        self.connect_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;")
-        button_layout.addWidget(self.connect_button)
-        
-        self.start_button = QPushButton("Start Acquisition")
-        self.start_button.clicked.connect(self.start_acquisition)
-        self.start_button.setEnabled(False)
-        self.start_button.setStyleSheet("background-color: #008CBA; color: white; font-weight: bold; padding: 8px;")
-        button_layout.addWidget(self.start_button)
-        
-        self.stop_button = QPushButton("Stop Acquisition")
-        self.stop_button.clicked.connect(self.stop_acquisition)
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet("background-color: #FF6B6B; color: white; font-weight: bold; padding: 8px;")
-        button_layout.addWidget(self.stop_button)
-        
-        self.disconnect_button = QPushButton("Disconnect")
-        self.disconnect_button.clicked.connect(self.disconnect_serial)
-        self.disconnect_button.setEnabled(False)
-        self.disconnect_button.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 8px;")
-        button_layout.addWidget(self.disconnect_button)
-        
-        self.save_button = QPushButton("Save Data")
-        self.save_button.clicked.connect(self.save_data)
-        self.save_button.setEnabled(False)
-        self.save_button.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold; padding: 8px;")
-        button_layout.addWidget(self.save_button)
-        
-        button_group.setLayout(button_layout)
-        main_layout.addWidget(button_group)
-        
-        # ===== Data Display Group =====
-        display_group = QGroupBox("Real-Time Data Stream (Last 50 Packets)")
-        display_layout = QVBoxLayout()
-        
-        self.data_display = QTextEdit()
-        self.data_display.setReadOnly(True)
-        self.data_display.setFont(QFont("Courier", 9))
-        self.data_display.setMaximumHeight(300)
-        display_layout.addWidget(self.data_display)
-        
-        display_group.setLayout(display_layout)
-        main_layout.addWidget(display_group)
-        
-        # ===== Statistics Group =====
-        stats_group = QGroupBox("Acquisition Statistics")
-        stats_layout = QHBoxLayout()
-        
-        stats_layout.addWidget(QLabel("Packets:"))
-        self.packet_label = QLabel("0")
-        self.packet_label.setFont(QFont("Arial", 11, QFont.Bold))
-        stats_layout.addWidget(self.packet_label)
-        
-        stats_layout.addSpacing(20)
-        
-        stats_layout.addWidget(QLabel("Samples:"))
-        self.sample_label = QLabel("0")
-        self.sample_label.setFont(QFont("Arial", 11, QFont.Bold))
-        stats_layout.addWidget(self.sample_label)
-        
-        stats_layout.addSpacing(20)
-        
-        stats_layout.addWidget(QLabel("Rate:"))
-        self.datarate_label = QLabel("0.0 KB/s")
-        self.datarate_label.setFont(QFont("Arial", 11, QFont.Bold))
-        stats_layout.addWidget(self.datarate_label)
-        
-        stats_layout.addSpacing(20)
-        
-        stats_layout.addWidget(QLabel("Duration:"))
-        self.duration_label = QLabel("00:00:00")
-        self.duration_label.setFont(QFont("Arial", 11, QFont.Bold))
-        stats_layout.addWidget(self.duration_label)
-        
-        stats_layout.addStretch()
-        stats_group.setLayout(stats_layout)
-        main_layout.addWidget(stats_group)
-        
-        # Status bar
-        self.statusBar = QStatusBar()
-        self.setStatusBar(self.statusBar)
-        self.statusBar.showMessage("Ready to connect")
-        
-        # Timers
-        self.data_rate_timer = QTimer()
-        self.data_rate_timer.timeout.connect(self.update_data_rate)
-        self.data_rate_bytes = 0
-        
-        self.duration_timer = QTimer()
-        self.duration_timer.timeout.connect(self.update_duration)
-        
-    def refresh_ports(self):
-        """Refresh available serial ports"""
-        self.port_combo.clear()
-        ports = serial.tools.list_ports.comports()
-        
-        if ports:
-            for port in ports:
-                self.port_combo.addItem(f"{port.device} - {port.description}")
-        else:
-            self.port_combo.addItem("No ports available")
-            
-    def connect_serial(self):
-        """Connect to selected serial port"""
-        if self.port_combo.count() == 0 or "No ports" in self.port_combo.currentText():
-            QMessageBox.warning(self, "No Ports", "No serial ports available")
-            return
-        
-        port = self.port_combo.currentText().split(" - ")[0]
-        baudrate = self.baud_spinbox.value()
-        
-        # Create worker and thread
-        self.worker = SerialWorker(buffer_size=5000)
-        self.serial_thread = QThread()
-        self.worker.moveToThread(self.serial_thread)
-        
-        # Connect signals with Qt.QueuedConnection (non-blocking)
-        self.worker.data_received.connect(self.on_data_received, Qt.QueuedConnection)
-        self.worker.status_changed.connect(self.on_status_changed, Qt.QueuedConnection)
-        self.worker.error_occurred.connect(self.on_error, Qt.QueuedConnection)
-        self.worker.packet_count_updated.connect(self.on_packet_count_updated, Qt.QueuedConnection)
-        self.worker.acquisition_finished.connect(self.on_acquisition_finished, Qt.QueuedConnection)
-        
-        # FIXED: Connect thread.started to worker.run (not worker.read_data)
-        self.serial_thread.started.connect(self.worker.run)
-        
-        if self.worker.connect_port(port, baudrate):
-            self.start_button.setEnabled(True)
-            self.disconnect_button.setEnabled(True)
-            self.port_combo.setEnabled(False)
-            self.baud_spinbox.setEnabled(False)
-            self.refresh_button.setEnabled(False)
-            self.connect_button.setEnabled(False)
-            self.statusBar.showMessage(f"Connected to {port}")
-        else:
-            QMessageBox.critical(self, "Connection Error", 
-                                f"Failed to connect to {port}")
-    
-    def disconnect_serial(self):
-        """Disconnect from serial port"""
-        self.stop_acquisition()
-        
-        if self.worker:
-            self.worker.disconnect_port()
-        
-        self.port_combo.setEnabled(True)
-        self.baud_spinbox.setEnabled(True)
-        self.refresh_button.setEnabled(True)
-        self.connect_button.setEnabled(True)
-        self.disconnect_button.setEnabled(False)
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
-        self.save_button.setEnabled(False)
-        
-        self.statusBar.showMessage("Disconnected")
-        
     def start_acquisition(self):
-        """Start data acquisition"""
-        if not self.worker or not self.worker.ser or not self.worker.ser.is_open:
-            QMessageBox.warning(self, "Not Connected", "Please connect to a port first")
+        """Start acquisition"""
+        if not self.ser or not self.ser.is_open:
+            messagebox.showerror("Error", "Arduino not connected")
             return
         
+        # Reset data
         self.session_data = []
-        self.display_buffer.clear()
-        self.worker.data_buffer.clear()
-        self.data_display.clear()
-        self.start_time = datetime.now()
+        self.packet_count = 0
+        self.session_start_time = datetime.now()
         
-        # FIXED: Now properly starts the thread
-        self.serial_thread.start()
+        # Reset graph buffers
+        self.graph_buffer_ch0.clear()
+        self.graph_buffer_ch1.clear()
+        self.graph_time_buffer.clear()
+        self.graph_index = 0
         
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.save_button.setEnabled(True)
-        self.port_combo.setEnabled(False)
-        self.connect_button.setEnabled(False)
+        self.ser.reset_input_buffer()
         
-        self.data_rate_timer.start(1000)
-        self.duration_timer.start(500)
-        self.statusBar.showMessage("Acquisition running...")
+        self.acquisition_active = True
+        self.start_btn.config(state="disabled")
+        self.stop_btn.config(state="normal")
+        self.save_btn.config(state="disabled")
+        
+        self.acquisition_thread = threading.Thread(target=self.acquisition_loop, daemon=True)
+        self.acquisition_thread.start()
+    
+    def acquisition_loop(self):
+        """Read and parse packets"""
+        buffer = bytearray()
+        
+        while self.acquisition_active and self.ser and self.ser.is_open:
+            try:
+                if self.ser.in_waiting > 0:
+                    byte = self.ser.read(1)
+                    if byte:
+                        buffer.extend(byte)
+                        
+                        # Check for complete packet
+                        if len(buffer) >= self.PACKET_LEN:
+                            if buffer[0] == self.SYNC_BYTE_1 and buffer[1] == self.SYNC_BYTE_2:
+                                if buffer[self.PACKET_LEN - 1] == self.END_BYTE:
+                                    # Valid packet
+                                    self.parse_and_store_packet(buffer[:self.PACKET_LEN])
+                                    buffer = buffer[self.PACKET_LEN:]
+                                else:
+                                    buffer = buffer[1:]
+                            else:
+                                buffer = buffer[1:]
+                else:
+                    time.sleep(0.001)
+                    
+            except Exception as e:
+                print(f"Error: {e}")
+                break
+    
+    def parse_and_store_packet(self, packet):
+        """Parse 8-byte packet"""
+        try:
+            counter = packet[2]
+            ch0_raw = (packet[4] << 8) | packet[3]
+            ch1_raw = (packet[6] << 8) | packet[5]
+            
+            timestamp = datetime.now()
+            elapsed_time = (timestamp - self.session_start_time).total_seconds()
+            
+            data_entry = {
+                "timestamp": timestamp.isoformat(),
+                "elapsed_time_s": round(elapsed_time, 6),
+                "packet_number": self.packet_count,
+                "sequence_counter": counter,
+                "ch0_raw_adc": ch0_raw,
+                "ch1_raw_adc": ch1_raw,
+            }
+            
+            self.session_data.append(data_entry)
+            self.packet_count += 1
+            
+            # Add to graph buffers
+            self.graph_buffer_ch0.append(ch0_raw)
+            self.graph_buffer_ch1.append(ch1_raw)
+            self.graph_time_buffer.append(self.graph_index)
+            self.graph_index += 1
+            
+            # Update status labels periodically (every 50 packets)
+            if self.packet_count % 50 == 0:
+                self.root.after(0, self.update_status_labels)
+            
+        except Exception as e:
+            print(f"Parse error: {e}")
+    
+    def update_status_labels(self):
+        """Update status displays"""
+        if self.acquisition_active and self.session_start_time:
+            elapsed = (datetime.now() - self.session_start_time).total_seconds()
+            hours, remainder = divmod(int(elapsed), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.duration_label.config(text=f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+            
+            if elapsed > 0:
+                rate = self.packet_count / elapsed
+                self.rate_label.config(text=f"{rate:.1f} Hz")
+            
+            self.packet_label.config(text=str(self.packet_count))
+            
+            # Update channel statistics
+            if len(self.graph_buffer_ch0) > 0:
+                ch0_data = list(self.graph_buffer_ch0)
+                self.ch0_min_label.config(text=f"Min: {min(ch0_data)}")
+                self.ch0_max_label.config(text=f"Max: {max(ch0_data)}")
+                self.ch0_mean_label.config(text=f"Mean: {int(np.mean(ch0_data))}")
+            
+            if len(self.graph_buffer_ch1) > 0:
+                ch1_data = list(self.graph_buffer_ch1)
+                self.ch1_min_label.config(text=f"Min: {min(ch1_data)}")
+                self.ch1_max_label.config(text=f"Max: {max(ch1_data)}")
+                self.ch1_mean_label.config(text=f"Mean: {int(np.mean(ch1_data))}")
+    
+    def update_graph_display(self):
+        """Update graph with latest data"""
+        try:
+            # Get data from buffers
+            x_data = list(self.graph_time_buffer)
+            ch0_data = list(self.graph_buffer_ch0)
+            ch1_data = list(self.graph_buffer_ch1)
+            
+            if len(x_data) > 1:
+                # Update Channel 0
+                self.line_ch0.set_data(x_data, ch0_data)
+                self.ax_ch0.set_xlim(max(0, self.graph_index - 1024), self.graph_index)
+                
+                # Update Channel 1
+                self.line_ch1.set_data(x_data, ch1_data)
+                self.ax_ch1.set_xlim(max(0, self.graph_index - 1024), self.graph_index)
+                
+                # Redraw canvas
+                self.canvas.draw_idle()
+        
+        except Exception as e:
+            print(f"Graph update error: {e}")
+        
+        # Schedule next update
+        if self.root.winfo_exists():
+            self.root.after(30, self.update_graph_display)
     
     def stop_acquisition(self):
-        """Stop data acquisition"""
-        if self.worker:
-            self.worker.is_running = False
+        """Stop acquisition"""
+        self.acquisition_active = False
+        time.sleep(0.5)
         
-        self.data_rate_timer.stop()
-        self.duration_timer.stop()
+        self.start_btn.config(state="normal")
+        self.stop_btn.config(state="disabled")
+        self.save_btn.config(state="normal")
         
-        # Properly wait for thread to finish
-        if self.serial_thread and self.serial_thread.isRunning():
-            self.serial_thread.quit()
-            self.serial_thread.wait()
-        
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        
-        # Thread-safe data copy
-        if self.worker:
-            self.worker.mutex.lock()
-            self.session_data = list(self.worker.data_buffer)
-            self.worker.mutex.unlock()
-        
-        self.statusBar.showMessage("Acquisition stopped")
+        self.update_status_labels()
     
-    def on_data_received(self, data):
-        """Handle received data packet (OPTIMIZED)"""
-        self.data_rate_bytes += 8  # 8-byte packet
-        
-        # Create display text
-        display_text = (
-            f"[{data['timestamp']}] "
-            f"C:{data['counter']:3d} | "
-            f"Ch0:{data['channel_0']:5d} | "
-            f"Ch1:{data['channel_1']:5d}"
-        )
-        
-        # Add to circular display buffer
-        self.display_buffer.append(display_text)
-        
-        # Update display every 10 packets (reduced from every packet)
-        if len(self.display_buffer) >= 5:
-            self.data_display.setPlainText('\n'.join(self.display_buffer))
-            self.data_display.verticalScrollBar().setValue(
-                self.data_display.verticalScrollBar().maximum()
-            )
-        
-        self.sample_label.setText(str(len(self.session_data) + len(self.worker.data_buffer)))
-    
-    def on_packet_count_updated(self, count):
-        """Update packet count"""
-        self.packet_label.setText(str(count))
-    
-    def on_status_changed(self, message):
-        """Handle status changes"""
-        self.statusBar.showMessage(message)
-    
-    def on_error(self, error):
-        """Handle errors"""
-        QMessageBox.critical(self, "Error", error)
-    
-    def on_acquisition_finished(self):
-        """Called when acquisition thread finishes"""
-        pass
-    
-    def update_data_rate(self):
-        """Update data rate display"""
-        data_rate_kbs = (self.data_rate_bytes / 1024)
-        self.datarate_label.setText(f"{data_rate_kbs:.2f} KB/s")
-        self.data_rate_bytes = 0
-    
-    def update_duration(self):
-        """Update session duration"""
-        if self.start_time:
-            elapsed = datetime.now() - self.start_time
-            hours, remainder = divmod(int(elapsed.total_seconds()), 3600)
-            minutes, seconds = divmod(remainder, 60)
-            self.duration_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-    
-    def save_data(self):
-        """Save collected data to JSON"""
+    def save_session_data(self):
+        """Save to JSON"""
         if not self.session_data:
-            QMessageBox.warning(self, "No Data", "No data to save")
-            return
-        
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save EMG Data",
-            "",
-            "JSON Files (*.json);;All Files (*)"
-        )
-        
-        if not file_path:
+            messagebox.showwarning("Empty", "No data to save")
             return
         
         try:
-            save_data = {
-                'metadata': {
-                    'session_start': self.session_data[0]['timestamp'] if self.session_data else '',
-                    'session_end': self.session_data[-1]['timestamp'] if self.session_data else '',
-                    'total_samples': len(self.session_data),
-                    'sampling_rate': 512,
-                    'channels': 2,
-                    'channel_0': 'Forearm Flexor (A0)',
-                    'channel_1': 'Forearm Extensor (A1)',
-                    'hardware': 'Arduino Uno R4',
-                    'packet_format': '8 bytes (sync + counter + 2x16-bit ADC + end)'
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_dir = Path("emg_sessions")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            
+            filename = out_dir / f"emg_session_{timestamp}.json"
+            
+            metadata = {
+                "session_info": {
+                    "timestamp": self.session_start_time.isoformat(),
+                    "duration_seconds": (datetime.now() - self.session_start_time).total_seconds(),
+                    "total_packets": self.packet_count,
+                    "sampling_rate_hz": self.SAMPLING_RATE,
+                    "channels": 2,
+                    "device": "Arduino Uno R4",
+                    "channel_0": "Forearm Flexor (A0)",
+                    "channel_1": "Forearm Extensor (A1)"
                 },
-                'data': self.session_data
+                "data": self.session_data
             }
             
-            with open(file_path, 'w') as f:
-                json.dump(save_data, f, indent=2)
+            with open(filename, 'w') as f:
+                json.dump(metadata, f, indent=2)
             
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Data saved: {file_path}\nSamples: {len(self.session_data)}"
-            )
+            messagebox.showinfo("Success", f"Saved {len(self.session_data)} packets\nFile: {filename}")
             
-            self.statusBar.showMessage(f"Data saved to {file_path}")
-        
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save: {str(e)}")
-    
-    def closeEvent(self, event):
-        """Handle window close"""
-        self.stop_acquisition()
-        if self.worker:
-            self.worker.disconnect_port()
-        event.accept()
+            messagebox.showerror("Error", f"Save failed: {e}")
 
 
 def main():
-    """Main entry point"""
-    app = QApplication(sys.argv)
-    window = EMGDataAcquisitionApp()
-    window.show()
-    sys.exit(app.exec_())
+    root = tk.Tk()
+    app = EMGVisualizationApp(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
