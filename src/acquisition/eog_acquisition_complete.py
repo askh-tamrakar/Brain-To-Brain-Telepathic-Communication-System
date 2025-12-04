@@ -52,16 +52,22 @@ class Config:
     """Application configuration constants"""
     
     # Serial communication
+    # BAUD_RATE: Aligns with Arduino's BAUD_RATE (230400) 
     BAUD_RATE = 230400
     SERIAL_TIMEOUT = 1.0
     
     # Packet format
-    PACKET_LENGTH = 8
+    # PACKET_LENGTH: Aligns with Arduino's PACKET_LEN (2*2+3+1 = 8 bytes) 
+    PACKET_LENGTH = 8 
+    # SYNC_BYTE_1: Aligns with Arduino's SYNC_BYTE_1 (0xC7) 
     SYNC_BYTE_1 = 0xC7
+    # SYNC_BYTE_2: Aligns with Arduino's SYNC_BYTE_2 (0x7C) 
     SYNC_BYTE_2 = 0x7C
+    # END_BYTE: Aligns with Arduino's END_BYTE (0x01) 
     END_BYTE = 0x01
     
     # Sampling
+    # SAMPLING_RATE: Aligns with Arduino's SAMP_RATE (512.0 Hz) 
     SAMPLING_RATE = 512.0
     
     # Filtering
@@ -87,6 +93,7 @@ class EOGFilter:
     """Real-time EOG signal filtering"""
     
     def __init__(self, fs=512, buffer_size=2048):
+        # fs: Aligns with Arduino's SAMP_RATE (512)
         self.fs = fs
         self.nyquist = fs / 2
         self.buffer_size = buffer_size
@@ -203,11 +210,15 @@ class PacketParser:
     def _decode_packet(self, packet):
         """Decode packet bytes to data"""
         try:
+            # Counter is at index 2 (Header 3 in Arduino)
             counter = packet[2]
+            # Ch0 raw is at indices 3 and 4 (Header 3 + 2*0, Header 3 + 2*0 + 1)
             ch0_raw = (packet[3] << 8) | packet[4]
+            # Ch1 raw is at indices 5 and 6 (Header 3 + 2*1, Header 3 + 2*1 + 1)
             ch1_raw = (packet[5] << 8) | packet[6]
             
-            # Convert to microvolts
+            # Convert to microvolts: Arduino uses 14-bit resolution[cite: 20], max value is 2^14 = 16384
+            # ADC reference voltage is typically 5.0V
             ch0_uv = (ch0_raw / 16384.0) * 5.0 * 1e6
             ch1_uv = (ch1_raw / 16384.0) * 5.0 * 1e6
             
@@ -325,10 +336,12 @@ class EOGAcquisitionApp:
                   width=3).grid(row=0, column=2, padx=2)
         
         ttk.Label(conn_frame, text='Baud:').grid(row=1, column=0, sticky='w', padx=5)
+        # BAUD_RATE: Aligns with Arduino's BAUD_RATE (230400)
         ttk.Label(conn_frame, text=f'{Config.BAUD_RATE}', 
                  font=('Arial', 9, 'bold')).grid(row=1, column=1, sticky='w', padx=5)
         
         ttk.Label(conn_frame, text='Rate:').grid(row=2, column=0, sticky='w', padx=5)
+        # SAMPLING_RATE: Aligns with Arduino's SAMP_RATE (512.0 Hz)
         ttk.Label(conn_frame, text=f'{Config.SAMPLING_RATE} Hz', 
                  font=('Arial', 9, 'bold')).grid(row=2, column=1, sticky='w', padx=5)
         
@@ -937,3 +950,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
