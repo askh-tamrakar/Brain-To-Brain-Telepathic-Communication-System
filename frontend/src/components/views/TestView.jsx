@@ -1003,6 +1003,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react'
 import '../../styles/test.css'
+import data as '../../../../data/session/'
 
 // Helper: convert hex string -> number
 const hexToNum = (h) => {
@@ -1013,8 +1014,9 @@ const hexToNum = (h) => {
 // Default demo JSON loader will assume JSON shape: { "raw": ["C7","7C","90", ...] }
 // If your file stores numbers instead of hex strings, the parser will handle that as well.
 
-export default function PacketDashboard({ jsonUrl = '/data/out_of_acquisition.json' }) {
+export default function PacketDashboard({ jsonUrl = '' }) {
   // Tweakers (user-adjustable)
+  
   const [sync1, setSync1] = useState('C7')
   const [sync2, setSync2] = useState('7C')
   const [packetSize, setPacketSize] = useState(8)
