@@ -1,7 +1,7 @@
 """
-EOG Signal Acquisition System - Unified v4.0
-Real-time visualization with JSON data logging
-Features: Live plotting, statistics, graph export (NO FILTER)
+EEG Signal Acquisition System - Unified v5.0
+Real-time visualization with JSON data logging & FFT analysis
+Features: Scrollable panel, Pause/Resume, Latest packet details
 Author: BCI Team
 Date: 2024-12-05
 """
@@ -21,20 +21,21 @@ import matplotlib
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import queue
 
-
-class EOGAcquisitionApp:
-    """EOG Acquisition System with unified status & export (No filtering)"""
+class EEGAcquisitionApp:
+    """EEG Acquisition System with Full Layout - Scrollable Panel, Pause/Resume, Latest Packet Details"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("EOG Signal Acquisition - v4.0")
+        self.root.title("EEG Signal Acquisition - v5.0")
         self.root.geometry("1600x950")
         self.root.configure(bg='#f0f0f0')
         
         # Serial connection
         self.ser = None
         self.acquisition_active = False
+        self.recording_active = False
         self.acquisition_thread = None
         
         # Data storage
@@ -42,11 +43,12 @@ class EOGAcquisitionApp:
         self.session_start_time = None
         self.packet_count = 0
         self.bytes_received = 0
+        self.last_packet = None
         
-        # Graph buffers (circular - last 1024 samples)
-        self.graph_buffer_ch0 = deque(maxlen=1024)
-        self.graph_buffer_ch1 = deque(maxlen=1024)
-        self.graph_time_buffer = deque(maxlen=1024)
+        # Graph buffers
+        self.graph_buffer_ch0 = deque(maxlen=512)
+        self.graph_buffer_ch1 = deque(maxlen=512)
+        self.graph_time_buffer = deque(maxlen=512)
         self.graph_index = 0
         self.last_graph_update_index = 0
         
@@ -60,21 +62,48 @@ class EOGAcquisitionApp:
         self.NUM_CHANNELS = 2
         
         # Default save path
-        self.save_path = Path("data/raw/session/eog")
+        self.save_path = Path("data/raw/session/eeg")
+        
+        # Queue for thread-safe communication
+        self.data_queue = queue.Queue()
         
         # Setup UI
         self.setup_ui()
         self.update_port_list()
         self.root.after(30, self.update_graph_display)
+        self.root.after(100, self.process_queue)
     
     def setup_ui(self):
-        """Create the user interface"""
+        """Create the user interface with scrollable left panel"""
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # LEFT COLUMN: Controls
-        left_frame = ttk.Frame(main_frame)
-        left_frame.pack(side="left", fill="both", expand=False, padx=5, ipadx=10)
+        # LEFT COLUMN: Controls (with scrollbar)
+        left_wrapper = ttk.Frame(main_frame)
+        left_wrapper.pack(side="left", fill="both", expand=False, padx=5)
+        
+        # Create canvas with scrollbar
+        self.canvas = tk.Canvas(left_wrapper, bg='#f0f0f0', highlightthickness=0, width=350)
+        scrollbar = ttk.Scrollbar(left_wrapper, orient="vertical", command=self.canvas.yview)
+        scrollable_frame = ttk.Frame(self.canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        
+        self.canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        self.canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        left_frame = scrollable_frame
         
         # RIGHT COLUMN: Graph
         right_frame = ttk.Frame(main_frame)
@@ -98,23 +127,23 @@ class EOGAcquisitionApp:
         status_frame = ttk.LabelFrame(left_frame, text="📊 Status", padding="10")
         status_frame.pack(fill="x", padx=0, pady=5)
         
-        ttk.Label(status_frame, text="Connection:").pack(anchor="w", padx=5, pady=1)
+        ttk.Label(status_frame, text="Connection:", font=("Arial", 9)).pack(anchor="w", padx=5, pady=1)
         self.status_label = ttk.Label(status_frame, text="❌ Disconnected", foreground="red", font=("Arial", 10, "bold"))
         self.status_label.pack(anchor="w", padx=5, pady=1)
         
-        ttk.Label(status_frame, text="Packets:").pack(anchor="w", padx=5, pady=1)
+        ttk.Label(status_frame, text="Packets:", font=("Arial", 9)).pack(anchor="w", padx=5, pady=1)
         self.packet_label = ttk.Label(status_frame, text="0", font=("Arial", 10, "bold"))
         self.packet_label.pack(anchor="w", padx=5, pady=1)
         
-        ttk.Label(status_frame, text="Duration:").pack(anchor="w", padx=5, pady=1)
+        ttk.Label(status_frame, text="Duration:", font=("Arial", 9)).pack(anchor="w", padx=5, pady=1)
         self.duration_label = ttk.Label(status_frame, text="00:00:00", font=("Arial", 10, "bold"))
         self.duration_label.pack(anchor="w", padx=5, pady=1)
         
-        ttk.Label(status_frame, text="Rate (Hz):").pack(anchor="w", padx=5, pady=1)
+        ttk.Label(status_frame, text="Rate (Hz):", font=("Arial", 9)).pack(anchor="w", padx=5, pady=1)
         self.rate_label = ttk.Label(status_frame, text="0 Hz", font=("Arial", 10, "bold"))
         self.rate_label.pack(anchor="w", padx=5, pady=1)
         
-        ttk.Label(status_frame, text="Speed (KBps):").pack(anchor="w", padx=5, pady=1)
+        ttk.Label(status_frame, text="Speed (KBps):", font=("Arial", 9)).pack(anchor="w", padx=5, pady=1)
         self.speed_label = ttk.Label(status_frame, text="0 KBps", font=("Arial", 10, "bold"))
         self.speed_label.pack(anchor="w", padx=5, pady=1)
         
@@ -134,74 +163,106 @@ class EOGAcquisitionApp:
         self.stop_btn = ttk.Button(control_frame, text="⏹️ Stop", command=self.stop_acquisition, state="disabled")
         self.stop_btn.pack(fill="x", padx=2, pady=2)
         
+        # ===== RECORDING CONTROL =====
+        recording_frame = ttk.LabelFrame(left_frame, text="⏺️ Recording", padding="10")
+        recording_frame.pack(fill="x", padx=0, pady=5)
+        
+        self.record_btn = ttk.Button(recording_frame, text="⏺️ Start Recording", command=self.start_recording, state="disabled")
+        self.record_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.pause_btn = ttk.Button(recording_frame, text="⏸️ Pause", command=self.pause_recording, state="disabled")
+        self.pause_btn.pack(fill="x", padx=2, pady=2)
+        
+        self.resume_btn = ttk.Button(recording_frame, text="▶️ Resume", command=self.resume_recording, state="disabled")
+        self.resume_btn.pack(fill="x", padx=2, pady=2)
+        
         # ===== SAVE OPTIONS =====
         save_frame = ttk.LabelFrame(left_frame, text="💾 Save", padding="10")
         save_frame.pack(fill="x", padx=0, pady=5)
         
         ttk.Button(save_frame, text="📁 Choose Path", command=self.choose_save_path).pack(fill="x", padx=2, pady=2)
         
-        self.path_label = ttk.Label(save_frame, text="data/raw/session/eog", font=("Arial", 8), wraplength=200, justify="left")
+        self.path_label = ttk.Label(save_frame, text="data/raw/session/eeg", font=("Arial", 8), wraplength=200, justify="left")
         self.path_label.pack(fill="x", padx=2, pady=5)
         
-        ttk.Button(save_frame, text="💾 Save Data", command=self.save_session_data, state="disabled").pack(fill="x", padx=2, pady=2)
-        self.save_btn = self.root.nametowidget(self.root.winfo_children()[-1])
+        self.save_data_btn = ttk.Button(save_frame, text="💾 Save Data", command=self.save_session_data, state="disabled")
+        self.save_data_btn.pack(fill="x", padx=2, pady=2)
         
-        ttk.Button(save_frame, text="📊 Export Graph", command=self.export_graph, state="disabled").pack(fill="x", padx=2, pady=2)
-        self.export_btn = self.root.nametowidget(self.root.winfo_children()[-1])
+        self.export_btn = ttk.Button(save_frame, text="📊 Export Graph", command=self.export_graph, state="disabled")
+        self.export_btn.pack(fill="x", padx=2, pady=2)
         
         # ===== STATISTICS =====
         stats_frame = ttk.LabelFrame(left_frame, text="📈 Stats", padding="10")
-        stats_frame.pack(fill="both", expand=True, padx=0, pady=5)
+        stats_frame.pack(fill="x", padx=0, pady=5)
         
-        ttk.Label(stats_frame, text="Channel 0 (Vertical):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
-        self.ch0_min_label = ttk.Label(stats_frame, text="Min: 0", font=("Arial", 8))
+        ttk.Label(stats_frame, text="Channel 0 (O1):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
+        self.ch0_min_label = ttk.Label(stats_frame, text="Min: 0 µV", font=("Arial", 8))
         self.ch0_min_label.pack(anchor="w", padx=5, pady=0)
-        self.ch0_max_label = ttk.Label(stats_frame, text="Max: 0", font=("Arial", 8))
+        self.ch0_max_label = ttk.Label(stats_frame, text="Max: 0 µV", font=("Arial", 8))
         self.ch0_max_label.pack(anchor="w", padx=5, pady=0)
-        self.ch0_mean_label = ttk.Label(stats_frame, text="Mean: 0", font=("Arial", 8))
+        self.ch0_mean_label = ttk.Label(stats_frame, text="Mean: 0 µV", font=("Arial", 8))
         self.ch0_mean_label.pack(anchor="w", padx=5, pady=2)
         
-        ttk.Label(stats_frame, text="Channel 1 (Horizontal):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
-        self.ch1_min_label = ttk.Label(stats_frame, text="Min: 0", font=("Arial", 8))
+        ttk.Label(stats_frame, text="Channel 1 (O2):", font=("Arial", 8, "bold")).pack(anchor="w", padx=2, pady=1)
+        self.ch1_min_label = ttk.Label(stats_frame, text="Min: 0 µV", font=("Arial", 8))
         self.ch1_min_label.pack(anchor="w", padx=5, pady=0)
-        self.ch1_max_label = ttk.Label(stats_frame, text="Max: 0", font=("Arial", 8))
+        self.ch1_max_label = ttk.Label(stats_frame, text="Max: 0 µV", font=("Arial", 8))
         self.ch1_max_label.pack(anchor="w", padx=5, pady=0)
-        self.ch1_mean_label = ttk.Label(stats_frame, text="Mean: 0", font=("Arial", 8))
+        self.ch1_mean_label = ttk.Label(stats_frame, text="Mean: 0 µV", font=("Arial", 8))
         self.ch1_mean_label.pack(anchor="w", padx=5, pady=2)
         
+        # ===== LATEST PACKET DETAILS =====
+        packet_frame = ttk.LabelFrame(left_frame, text="📋 Latest Packet", padding="10")
+        packet_frame.pack(fill="both", expand=True, padx=0, pady=5)
+        
+        self.packet_tree = ttk.Treeview(packet_frame, columns=('Value',), height=8)
+        self.packet_tree.column('#0', width=120)
+        self.packet_tree.column('Value', width=80)
+        self.packet_tree.heading('#0', text='Field')
+        self.packet_tree.heading('Value', text='Value')
+        self.packet_tree.pack(fill='both', expand=True)
+        
         # ===== GRAPH PANEL =====
-        graph_frame = ttk.LabelFrame(right_frame, text="📡 Real-Time EOG Signal (512 Hz)", padding="5")
+        graph_frame = ttk.LabelFrame(right_frame, text="📡 Real-Time EEG Signal (512 Hz)", padding="5")
         graph_frame.pack(fill="both", expand=True, padx=0, pady=0)
         
-        # Create matplotlib figure
+        # Create matplotlib figure with 3 subplots
         self.fig = Figure(figsize=(10, 6), dpi=100, facecolor='white')
         self.fig.patch.set_facecolor('#f0f0f0')
         
-        # Subplot for Ch0
-        self.ax_ch0 = self.fig.add_subplot(211)
-        self.line_ch0, = self.ax_ch0.plot([], [], color='#FF6B6B', linewidth=1.5, label='Ch0 (Vertical)')
-        self.ax_ch0.set_ylabel('Voltage (µV)', fontsize=10)
-        self.ax_ch0.set_ylim(-100000, 100000)
+        # Subplot for Ch0 waveform
+        self.ax_ch0 = self.fig.add_subplot(311)
+        self.line_ch0, = self.ax_ch0.plot([], [], color='#667eea', linewidth=1.5, label='Ch0 (O1)')
+        self.ax_ch0.set_ylabel('µV', fontsize=9)
+        self.ax_ch0.set_ylim(-2000, 2000)
         self.ax_ch0.grid(True, alpha=0.3, linestyle='--')
-        self.ax_ch0.legend(loc='upper left', fontsize=9)
-        self.ax_ch0.set_title('Channel 0: Vertical Eye Movement', fontsize=10, fontweight='bold')
+        self.ax_ch0.legend(loc='upper left', fontsize=8)
+        self.ax_ch0.set_title('Channel 0: Occipital Left (O1)', fontsize=9, fontweight='bold')
         
-        # Subplot for Ch1
-        self.ax_ch1 = self.fig.add_subplot(212)
-        self.line_ch1, = self.ax_ch1.plot([], [], color='#4ECDC4', linewidth=1.5, label='Ch1 (Horizontal)')
-        self.ax_ch1.set_xlabel('Time (samples)', fontsize=10)
-        self.ax_ch1.set_ylabel('Voltage (µV)', fontsize=10)
-        self.ax_ch1.set_ylim(-100000, 100000)
+        # Subplot for Ch1 waveform
+        self.ax_ch1 = self.fig.add_subplot(312)
+        self.line_ch1, = self.ax_ch1.plot([], [], color='#f56565', linewidth=1.5, label='Ch1 (O2)')
+        self.ax_ch1.set_ylabel('µV', fontsize=9)
+        self.ax_ch1.set_ylim(-2000, 2000)
         self.ax_ch1.grid(True, alpha=0.3, linestyle='--')
-        self.ax_ch1.legend(loc='upper left', fontsize=9)
-        self.ax_ch1.set_title('Channel 1: Horizontal Eye Movement', fontsize=10, fontweight='bold')
+        self.ax_ch1.legend(loc='upper left', fontsize=8)
+        self.ax_ch1.set_title('Channel 1: Occipital Right (O2)', fontsize=9, fontweight='bold')
+        
+        # Subplot for FFT
+        self.ax_fft = self.fig.add_subplot(313)
+        self.line_fft, = self.ax_fft.plot([], [], color='#48bb78', linewidth=1.5)
+        self.ax_fft.set_xlabel('Frequency (Hz)', fontsize=9)
+        self.ax_fft.set_ylabel('Magnitude (µV)', fontsize=9)
+        self.ax_fft.set_xlim(0, 60)
+        self.ax_fft.grid(True, alpha=0.3, linestyle='--')
+        self.ax_fft.set_title('Frequency Spectrum (FFT)', fontsize=9, fontweight='bold')
         
         self.fig.tight_layout()
         
         # Embed matplotlib in tkinter
-        self.canvas = FigureCanvasTkAgg(self.fig, master=graph_frame)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas_plot = FigureCanvasTkAgg(self.fig, master=graph_frame)
+        self.canvas_plot.draw()
+        self.canvas_plot.get_tk_widget().pack(fill="both", expand=True)
     
     def update_port_list(self):
         """Refresh available COM ports"""
@@ -243,6 +304,9 @@ class EOGAcquisitionApp:
         self.disconnect_btn.config(state="disabled")
         self.start_btn.config(state="disabled")
         self.stop_btn.config(state="disabled")
+        self.record_btn.config(state="disabled")
+        self.pause_btn.config(state="disabled")
+        self.resume_btn.config(state="disabled")
     
     def start_acquisition(self):
         """Start acquisition"""
@@ -254,7 +318,6 @@ class EOGAcquisitionApp:
         self.packet_count = 0
         self.bytes_received = 0
         self.session_start_time = datetime.now()
-        
         self.graph_buffer_ch0.clear()
         self.graph_buffer_ch1.clear()
         self.graph_time_buffer.clear()
@@ -271,6 +334,7 @@ class EOGAcquisitionApp:
         self.acquisition_active = True
         self.start_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
+        self.record_btn.config(state="normal")
         
         self.acquisition_thread = threading.Thread(target=self.acquisition_loop, daemon=True)
         self.acquisition_thread.start()
@@ -287,10 +351,9 @@ class EOGAcquisitionApp:
                         buffer.extend(chunk)
                     
                     while len(buffer) >= self.PACKET_LEN:
-                        if (buffer[0] == self.SYNC_BYTE_1 and 
-                            buffer[1] == self.SYNC_BYTE_2):
+                        if (buffer[0] == self.SYNC_BYTE_1 and buffer[1] == self.SYNC_BYTE_2):
                             if buffer[self.PACKET_LEN - 1] == self.END_BYTE:
-                                self.parse_and_store_packet(buffer[:self.PACKET_LEN])
+                                self.data_queue.put(bytes(buffer[:self.PACKET_LEN]))
                                 del buffer[:self.PACKET_LEN]
                             else:
                                 del buffer[0]
@@ -302,16 +365,28 @@ class EOGAcquisitionApp:
                 print(f"[❌] Error: {e}")
                 break
     
+    def process_queue(self):
+        """Process packets from queue in main thread"""
+        try:
+            while True:
+                packet = self.data_queue.get_nowait()
+                self.parse_and_store_packet(packet)
+        except queue.Empty:
+            pass
+        
+        if self.root.winfo_exists():
+            self.root.after(10, self.process_queue)
+    
     def parse_and_store_packet(self, packet):
-        """Parse 8-byte packet"""
+        """Parse 8-byte packet and convert to µV"""
         try:
             counter = packet[2]
             ch0_raw = (packet[4] << 8) | packet[3]
             ch1_raw = (packet[6] << 8) | packet[5]
             
-            # Convert to µV (assuming ADC reference)
-            ch0_uv = (ch0_raw / 16384.0) * 5.0 * 1e6
-            ch1_uv = (ch1_raw / 16384.0) * 5.0 * 1e6
+            # Convert to µV (assuming 14-bit ADC, 3.3V reference)
+            ch0_uv = ((ch0_raw / 16384.0) * 3300) - 1650
+            ch1_uv = ((ch1_raw / 16384.0) * 3300) - 1650
             
             timestamp = datetime.now()
             elapsed_time = (timestamp - self.session_start_time).total_seconds()
@@ -321,14 +396,17 @@ class EOGAcquisitionApp:
                 "elapsed_time_s": round(elapsed_time, 6),
                 "packet_number": self.packet_count,
                 "sequence_counter": counter,
-                "ch0_adc": ch0_raw,
-                "ch1_adc": ch1_raw,
-                "ch0_uv": ch0_uv,
-                "ch1_uv": ch1_uv,
+                "ch0_raw_adc": ch0_raw,
+                "ch1_raw_adc": ch1_raw,
+                "ch0_uv": round(ch0_uv, 2),
+                "ch1_uv": round(ch1_uv, 2),
             }
             
             self.session_data.append(data_entry)
             self.packet_count += 1
+            
+            if self.recording_active:
+                self.last_packet = data_entry
             
             self.graph_buffer_ch0.append(ch0_uv)
             self.graph_buffer_ch1.append(ch1_uv)
@@ -337,6 +415,7 @@ class EOGAcquisitionApp:
             
             if self.packet_count % 50 == 0:
                 self.root.after(0, self.update_status_labels)
+            
         except Exception as e:
             print(f"[❌] Parse error: {e}")
     
@@ -356,20 +435,35 @@ class EOGAcquisitionApp:
             
             self.packet_label.config(text=str(self.packet_count))
             
+            # Update stats
             if len(self.graph_buffer_ch0) > 0:
                 ch0_data = list(self.graph_buffer_ch0)
-                self.ch0_min_label.config(text=f"Min: {min(ch0_data):.0f}")
-                self.ch0_max_label.config(text=f"Max: {max(ch0_data):.0f}")
-                self.ch0_mean_label.config(text=f"Mean: {np.mean(ch0_data):.0f}")
+                self.ch0_min_label.config(text=f"Min: {min(ch0_data):.0f} µV")
+                self.ch0_max_label.config(text=f"Max: {max(ch0_data):.0f} µV")
+                self.ch0_mean_label.config(text=f"Mean: {np.mean(ch0_data):.0f} µV")
             
             if len(self.graph_buffer_ch1) > 0:
                 ch1_data = list(self.graph_buffer_ch1)
-                self.ch1_min_label.config(text=f"Min: {min(ch1_data):.0f}")
-                self.ch1_max_label.config(text=f"Max: {max(ch1_data):.0f}")
-                self.ch1_mean_label.config(text=f"Mean: {np.mean(ch1_data):.0f}")
+                self.ch1_min_label.config(text=f"Min: {min(ch1_data):.0f} µV")
+                self.ch1_max_label.config(text=f"Max: {max(ch1_data):.0f} µV")
+                self.ch1_mean_label.config(text=f"Mean: {np.mean(ch1_data):.0f} µV")
+            
+            # Update latest packet details
+            if self.last_packet:
+                self.packet_tree.delete(*self.packet_tree.get_children())
+                details = [
+                    ('Timestamp', self.last_packet['timestamp'].split('T')[1][:8]),
+                    ('Counter', str(self.last_packet['sequence_counter'])),
+                    ('Ch0 µV', f"{self.last_packet['ch0_uv']:.0f}"),
+                    ('Ch1 µV', f"{self.last_packet['ch1_uv']:.0f}"),
+                    ('Packets', str(self.packet_count)),
+                    ('Duration', f"{int((datetime.now() - self.session_start_time).total_seconds())}s"),
+                ]
+                for field, value in details:
+                    self.packet_tree.insert('', 'end', text=field, values=(value,))
     
     def update_graph_display(self):
-        """Update graph"""
+        """Update graph with waveforms and FFT"""
         if self.graph_index == self.last_graph_update_index:
             if self.root.winfo_exists():
                 self.root.after(30, self.update_graph_display)
@@ -381,19 +475,47 @@ class EOGAcquisitionApp:
             ch1_data = list(self.graph_buffer_ch1)
             
             if len(x_data) > 1:
+                # Update waveforms
                 self.line_ch0.set_data(x_data, ch0_data)
-                self.ax_ch0.set_xlim(max(0, self.graph_index - 1024), max(1024, self.graph_index))
+                self.ax_ch0.set_xlim(max(0, self.graph_index - 512), max(512, self.graph_index))
                 
                 self.line_ch1.set_data(x_data, ch1_data)
-                self.ax_ch1.set_xlim(max(0, self.graph_index - 1024), max(1024, self.graph_index))
+                self.ax_ch1.set_xlim(max(0, self.graph_index - 512), max(512, self.graph_index))
                 
-                self.canvas.draw_idle()
-                self.last_graph_update_index = self.graph_index
+                # Update FFT
+                if len(ch0_data) >= 256:
+                    fft_data = np.fft.fft(ch0_data[-256:])
+                    freq = np.fft.fftfreq(256, 1/self.SAMPLING_RATE)
+                    magnitude = np.abs(fft_data)[:128]
+                    self.line_fft.set_data(freq[:128], magnitude)
+                    self.ax_fft.set_ylim(0, np.max(magnitude) * 1.2 if np.max(magnitude) > 0 else 1)
+                
+                self.canvas_plot.draw_idle()
+            
+            self.last_graph_update_index = self.graph_index
         except Exception as e:
             print(f"[❌] Graph error: {e}")
         
         if self.root.winfo_exists():
             self.root.after(30, self.update_graph_display)
+    
+    def start_recording(self):
+        """Start recording session"""
+        self.recording_active = True
+        self.record_btn.config(state="disabled")
+        self.pause_btn.config(state="normal")
+    
+    def pause_recording(self):
+        """Pause recording"""
+        self.recording_active = False
+        self.pause_btn.config(state="disabled")
+        self.resume_btn.config(state="normal")
+    
+    def resume_recording(self):
+        """Resume recording"""
+        self.recording_active = True
+        self.pause_btn.config(state="normal")
+        self.resume_btn.config(state="disabled")
     
     def stop_acquisition(self):
         """Stop acquisition"""
@@ -405,10 +527,15 @@ class EOGAcquisitionApp:
                 print(f"[❌] Failed to send STOP: {e}")
         
         self.acquisition_active = False
+        self.recording_active = False
         time.sleep(0.5)
-        
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
+        self.record_btn.config(state="disabled")
+        self.pause_btn.config(state="disabled")
+        self.resume_btn.config(state="disabled")
+        self.save_data_btn.config(state="normal")
+        self.export_btn.config(state="normal")
         self.update_status_labels()
     
     def choose_save_path(self):
@@ -427,8 +554,7 @@ class EOGAcquisitionApp:
         try:
             timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             self.save_path.mkdir(parents=True, exist_ok=True)
-            
-            filename = f"EOG_session_{timestamp}.json"
+            filename = f"EEG_session_{timestamp}.json"
             filepath = self.save_path / filename
             
             metadata = {
@@ -439,9 +565,9 @@ class EOGAcquisitionApp:
                     "sampling_rate_hz": self.SAMPLING_RATE,
                     "channels": self.NUM_CHANNELS,
                     "device": "Arduino Uno R4",
-                    "sensor_type": "EOG",
-                    "channel_0": "Vertical Eye Movement",
-                    "channel_1": "Horizontal Eye Movement"
+                    "sensor_type": "EEG",
+                    "channel_0": "Occipital Left (O1)",
+                    "channel_1": "Occipital Right (O2)"
                 },
                 "data": self.session_data
             }
@@ -461,7 +587,7 @@ class EOGAcquisitionApp:
         
         try:
             timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-            filename = f"EOG_graph_{timestamp}.png"
+            filename = f"EEG_graph_{timestamp}.png"
             filepath = filedialog.asksaveasfilename(defaultextension=".png", initialfile=filename)
             
             if filepath:
@@ -470,12 +596,10 @@ class EOGAcquisitionApp:
         except Exception as e:
             messagebox.showerror("Error", f"Export failed: {e}")
 
-
 def main():
     root = tk.Tk()
-    app = EOGAcquisitionApp(root)
+    app = EEGAcquisitionApp(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
