@@ -10,6 +10,9 @@ from collections import deque
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import queue
+import time
+
 
 class SSVEPEEGApp:
     def __init__(self, root):
@@ -34,8 +37,6 @@ class SSVEPEEGApp:
         self.is_acquiring = False
         self.is_recording = False
         self.serial_port = None
-        self.buffer = bytearray(1024)
-        self.buffer_index = 0
         self.packet_count = 0
         self.sample_count = 0
         
@@ -45,9 +46,13 @@ class SSVEPEEGApp:
         self.read_thread = None
         self.stop_reading = False
         
+        # Queue for thread-safe communication
+        self.data_queue = queue.Queue()
+        
         # Setup UI
         self.setup_ui()
         self.populate_com_ports()
+        self.process_queue()  # Start queue processor
         
     def setup_ui(self):
         # Main container
@@ -90,8 +95,12 @@ class SSVEPEEGApp:
         # Acquisition Section
         ttk.Label(control_frame, text="ACQUISITION", font=('Arial', 10, 'bold')).grid(row=9, column=0, columnspan=2, sticky='w', pady=(15,5))
         
-        ttk.Button(control_frame, text="Start", command=self.start_acquisition, width=9).grid(row=10, column=0, sticky='ew', padx=(0,5))
-        ttk.Button(control_frame, text="Stop", command=self.stop_acquisition, width=9).grid(row=10, column=1, sticky='ew')
+        self.start_btn = ttk.Button(control_frame, text="Start", command=self.start_acquisition, width=9)
+        self.start_btn.grid(row=10, column=0, sticky='ew', padx=(0,5))
+        self.stop_btn = ttk.Button(control_frame, text="Stop", command=self.stop_acquisition, width=9)
+        self.stop_btn.grid(row=10, column=1, sticky='ew')
+        self.start_btn.config(state='disabled')
+        self.stop_btn.config(state='disabled')
         
         # Recording Section
         ttk.Label(control_frame, text="DATA LOGGING", font=('Arial', 10, 'bold')).grid(row=11, column=0, columnspan=2, sticky='w', pady=(15,5))
@@ -100,8 +109,12 @@ class SSVEPEEGApp:
         self.session_var = tk.StringVar(value="SSVEP_Session")
         ttk.Entry(control_frame, textvariable=self.session_var, width=22).grid(row=12, column=1, sticky='ew', pady=5)
         
-        ttk.Button(control_frame, text="Record", command=self.start_recording, width=9).grid(row=13, column=0, sticky='ew', padx=(0,5))
-        ttk.Button(control_frame, text="Stop Rec", command=self.stop_recording, width=9).grid(row=13, column=1, sticky='ew')
+        self.record_btn = ttk.Button(control_frame, text="Record", command=self.start_recording, width=9)
+        self.record_btn.grid(row=13, column=0, sticky='ew', padx=(0,5))
+        self.stop_rec_btn = ttk.Button(control_frame, text="Stop Rec", command=self.stop_recording, width=9)
+        self.stop_rec_btn.grid(row=13, column=1, sticky='ew')
+        self.record_btn.config(state='disabled')
+        self.stop_rec_btn.config(state='disabled')
         
         ttk.Button(control_frame, text="Save Data", command=self.save_data, width=20).grid(row=14, column=0, columnspan=2, sticky='ew', pady=5)
         
@@ -166,11 +179,14 @@ class SSVEPEEGApp:
         main_frame.rowconfigure(0, weight=1)
         
     def populate_com_ports(self):
-        ports = serial.tools.list_ports.comports()
-        port_list = [port.device for port in ports]
-        self.com_dropdown['values'] = port_list if port_list else ['No ports available']
-        if port_list:
-            self.com_dropdown.current(0)
+        try:
+            ports = serial.tools.list_ports.comports()
+            port_list = [port.device for port in ports]
+            self.com_dropdown['values'] = port_list if port_list else ['No ports available']
+            if port_list:
+                self.com_dropdown.current(0)
+        except Exception as e:
+            print(f"Error detecting ports: {e}")
     
     def connect_device(self):
         try:
@@ -179,7 +195,9 @@ class SSVEPEEGApp:
                 messagebox.showerror("Error", "Please select a valid COM port")
                 return
             
-            self.serial_port = serial.Serial(port, 230400, timeout=1)
+            self.serial_port = serial.Serial(port, 230400, timeout=0.1)
+            time.sleep(2)  # Wait for Arduino to initialize
+            
             self.is_connected = True
             self.update_status()
             self.show_message("✓ Connected successfully!", 'green')
@@ -188,6 +206,9 @@ class SSVEPEEGApp:
             self.stop_reading = False
             self.read_thread = threading.Thread(target=self.read_serial_data, daemon=True)
             self.read_thread.start()
+            
+            # Enable buttons
+            self.start_btn.config(state='normal')
             
         except Exception as e:
             messagebox.showerror("Connection Error", f"Failed to connect: {str(e)}")
@@ -198,6 +219,8 @@ class SSVEPEEGApp:
                 self.stop_acquisition()
             
             self.stop_reading = True
+            time.sleep(0.5)  # Give thread time to exit
+            
             if self.serial_port:
                 self.serial_port.close()
             
@@ -205,95 +228,148 @@ class SSVEPEEGApp:
             self.update_status()
             self.show_message("Disconnected successfully", 'blue')
             
+            # Disable buttons
+            self.start_btn.config(state='disabled')
+            self.stop_btn.config(state='disabled')
+            self.record_btn.config(state='disabled')
+            self.stop_rec_btn.config(state='disabled')
+            
         except Exception as e:
             messagebox.showerror("Disconnection Error", f"Error: {str(e)}")
     
     def read_serial_data(self):
+        """Read serial data in background thread"""
+        buffer = bytearray()
+        sync_found = False
+        
         while not self.stop_reading and self.is_connected:
             try:
                 if self.serial_port.in_waiting > 0:
-                    byte = self.serial_port.read(1)
-                    if byte:
-                        self.buffer[self.buffer_index] = ord(byte) if isinstance(byte, str) else byte[0]
-                        self.buffer_index += 1
+                    # Read available data
+                    chunk = self.serial_port.read(self.serial_port.in_waiting)
+                    buffer.extend(chunk)
+                    
+                    # Try to find and parse packets
+                    while len(buffer) >= self.CONFIG['PACKET_SIZE']:
+                        # Look for sync bytes
+                        if not sync_found:
+                            if buffer[0] == self.CONFIG['SYNC_BYTE_1']:
+                                if len(buffer) > 1 and buffer[1] == self.CONFIG['SYNC_BYTE_2']:
+                                    sync_found = True
+                                else:
+                                    buffer.pop(0)
+                            else:
+                                buffer.pop(0)
                         
-                        if self.buffer_index == self.CONFIG['PACKET_SIZE']:
-                            self.process_packet(bytes(self.buffer[:self.CONFIG['PACKET_SIZE']]))
-                            self.buffer_index = 0
+                        # If sync found, try to extract packet
+                        if sync_found and len(buffer) >= self.CONFIG['PACKET_SIZE']:
+                            packet = bytes(buffer[:self.CONFIG['PACKET_SIZE']])
+                            
+                            # Validate end byte
+                            if packet[7] == self.CONFIG['END_BYTE']:
+                                # Valid packet
+                                self.data_queue.put(packet)
+                                buffer = buffer[self.CONFIG['PACKET_SIZE']:]
+                                sync_found = False
+                            else:
+                                # Invalid packet, skip first byte and search again
+                                buffer.pop(0)
+                                sync_found = False
+                else:
+                    time.sleep(0.001)  # Small delay to prevent busy waiting
+                    
             except Exception as e:
                 print(f"Read error: {e}")
                 break
     
-    def process_packet(self, packet):
-        if (packet[0] != self.CONFIG['SYNC_BYTE_1'] or 
-            packet[1] != self.CONFIG['SYNC_BYTE_2'] or 
-            packet[7] != self.CONFIG['END_BYTE']):
-            return
+    def process_queue(self):
+        """Process packets from queue in main thread"""
+        try:
+            while True:
+                packet = self.data_queue.get_nowait()
+                self.process_packet(packet)
+        except queue.Empty:
+            pass
         
-        self.packet_count += 1
-        counter = packet[2]
-        ch0 = (packet[3] << 8) | packet[4]
-        ch1 = (packet[5] << 8) | packet[6]
-        
-        # Convert to µV
-        ch0_uv = ((ch0 / 16384) * 3300) - 1650
-        ch1_uv = ((ch1 / 16384) * 3300) - 1650
-        
-        self.samples['ch0'].append(ch0_uv)
-        self.samples['ch1'].append(ch1_uv)
-        self.sample_count += 2
-        
-        # Update UI
-        self.root.after(0, self.update_ui_elements, counter, ch0, ch1, ch0_uv, ch1_uv)
-        
-        # Log if recording
-        if self.is_recording:
-            self.recorded_data.append({
-                'timestamp': datetime.now(),
-                'counter': counter,
-                'ch0_uv': ch0_uv,
-                'ch1_uv': ch1_uv,
-                'raw_ch0': ch0,
-                'raw_ch1': ch1
-            })
+        # Schedule next check
+        self.root.after(10, self.process_queue)
     
-    def update_ui_elements(self, counter, ch0, ch1, ch0_uv, ch1_uv):
-        self.packet_label.config(text=str(self.packet_count))
-        self.sample_label.config(text=str(self.sample_count))
-        
-        # Update charts
-        if len(self.samples['ch0']) > 0:
-            x_data = list(range(len(self.samples['ch0'])))
-            self.line1_ch0.set_data(x_data, list(self.samples['ch0']))
-            self.line1_ch1.set_data(x_data, list(self.samples['ch1']))
-            self.ax1.set_xlim(0, len(self.samples['ch0']))
+    def process_packet(self, packet):
+        """Process a single packet"""
+        try:
+            self.packet_count += 1
+            counter = packet[2]
+            ch0 = (packet[3] << 8) | packet[4]
+            ch1 = (packet[5] << 8) | packet[6]
             
-            # Simple FFT
-            if len(self.samples['ch0']) >= 256:
-                fft_data = np.fft.fft(list(self.samples['ch0'])[-256:])
-                freq = np.fft.fftfreq(256, 1/self.CONFIG['SAMP_RATE'])
-                magnitude = np.abs(fft_data)[:128]
-                self.line2.set_data(freq[:128], magnitude)
-                self.ax2.set_xlim(0, 100)
-                self.ax2.set_ylim(0, np.max(magnitude) * 1.2 if np.max(magnitude) > 0 else 1)
+            # Convert to µV (assuming 14-bit ADC, 3.3V reference)
+            ch0_uv = ((ch0 / 16384) * 3300) - 1650
+            ch1_uv = ((ch1 / 16384) * 3300) - 1650
             
-            self.canvas.draw_idle()
-        
-        # Update packet details
-        self.packet_tree.delete(*self.packet_tree.get_children())
-        details = [
-            ('Sync1', f'0x{packet[0]:02X}', 'Should be 0xC7'),
-            ('Sync2', f'0x{packet[1]:02X}', 'Should be 0x7C'),
-            ('Counter', str(counter), 'Packet sequence'),
-            ('CH0 Raw', f'{ch0}', 'O1 ADC'),
-            ('CH0 µV', f'{ch0_uv:.2f}', 'O1 Voltage'),
-            ('CH1 Raw', f'{ch1}', 'O2 ADC'),
-            ('CH1 µV', f'{ch1_uv:.2f}', 'O2 Voltage'),
-            ('End', f'0x{packet[7]:02X}', 'Should be 0x01')
-        ]
-        
-        for field, value, desc in details:
-            self.packet_tree.insert('', 'end', text=field, values=(value, desc))
+            self.samples['ch0'].append(ch0_uv)
+            self.samples['ch1'].append(ch1_uv)
+            self.sample_count += 2
+            
+            # Update UI elements
+            self.update_ui_elements(counter, ch0, ch1, ch0_uv, ch1_uv, packet)
+            
+            # Log if recording
+            if self.is_recording:
+                self.recorded_data.append({
+                    'timestamp': datetime.now(),
+                    'counter': counter,
+                    'ch0_uv': ch0_uv,
+                    'ch1_uv': ch1_uv,
+                    'raw_ch0': ch0,
+                    'raw_ch1': ch1
+                })
+        except Exception as e:
+            print(f"Process packet error: {e}")
+    
+    def update_ui_elements(self, counter, ch0, ch1, ch0_uv, ch1_uv, packet):
+        """Update UI elements with new data"""
+        try:
+            # Update labels
+            self.packet_label.config(text=str(self.packet_count))
+            self.sample_label.config(text=str(self.sample_count))
+            
+            # Update charts
+            if len(self.samples['ch0']) > 0:
+                x_data = list(range(len(self.samples['ch0'])))
+                self.line1_ch0.set_data(x_data, list(self.samples['ch0']))
+                self.line1_ch1.set_data(x_data, list(self.samples['ch1']))
+                self.ax1.set_xlim(0, max(1, len(self.samples['ch0'])))
+                
+                # Simple FFT
+                if len(self.samples['ch0']) >= 256:
+                    signal = list(self.samples['ch0'])[-256:]
+                    fft_data = np.fft.fft(signal)
+                    freq = np.fft.fftfreq(256, 1/self.CONFIG['SAMP_RATE'])
+                    magnitude = np.abs(fft_data)[:128]
+                    self.line2.set_data(freq[:128], magnitude)
+                    self.ax2.set_xlim(0, 100)
+                    max_mag = np.max(magnitude)
+                    self.ax2.set_ylim(0, max_mag * 1.2 if max_mag > 0 else 1)
+                
+                self.canvas.draw_idle()
+            
+            # Update packet details
+            self.packet_tree.delete(*self.packet_tree.get_children())
+            details = [
+                ('Sync1', f'0x{packet[0]:02X}', 'Should be 0xC7'),
+                ('Sync2', f'0x{packet[1]:02X}', 'Should be 0x7C'),
+                ('Counter', str(counter), 'Packet sequence'),
+                ('CH0 Raw', f'{ch0}', 'O1 ADC (0-16383)'),
+                ('CH0 µV', f'{ch0_uv:.2f}', 'O1 Voltage'),
+                ('CH1 Raw', f'{ch1}', 'O2 ADC (0-16383)'),
+                ('CH1 µV', f'{ch1_uv:.2f}', 'O2 Voltage'),
+                ('End', f'0x{packet[7]:02X}', 'Should be 0x01')
+            ]
+            
+            for field, value, desc in details:
+                self.packet_tree.insert('', 'end', text=field, values=(value, desc))
+        except Exception as e:
+            print(f"UI update error: {e}")
     
     def start_acquisition(self):
         try:
@@ -301,6 +377,9 @@ class SSVEPEEGApp:
             self.is_acquiring = True
             self.update_status()
             self.show_message("✓ Acquisition started", 'green')
+            self.start_btn.config(state='disabled')
+            self.stop_btn.config(state='normal')
+            self.record_btn.config(state='normal')
         except Exception as e:
             messagebox.showerror("Error", f"Start failed: {str(e)}")
     
@@ -311,6 +390,10 @@ class SSVEPEEGApp:
             self.is_recording = False
             self.update_status()
             self.show_message("Acquisition stopped", 'blue')
+            self.start_btn.config(state='normal')
+            self.stop_btn.config(state='disabled')
+            self.record_btn.config(state='disabled')
+            self.stop_rec_btn.config(state='disabled')
         except Exception as e:
             messagebox.showerror("Error", f"Stop failed: {str(e)}")
     
@@ -318,10 +401,14 @@ class SSVEPEEGApp:
         self.recorded_data = []
         self.is_recording = True
         self.show_message("✓ Recording started", 'green')
+        self.record_btn.config(state='disabled')
+        self.stop_rec_btn.config(state='normal')
     
     def stop_recording(self):
         self.is_recording = False
         self.show_message(f"Recording stopped. {len(self.recorded_data)} samples captured.", 'blue')
+        self.record_btn.config(state='normal')
+        self.stop_rec_btn.config(state='disabled')
     
     def save_data(self):
         if not self.recorded_data:
@@ -379,6 +466,7 @@ class SSVEPEEGApp:
     
     def show_message(self, message, color='black'):
         self.message_label.config(text=message, foreground=color)
+
 
 if __name__ == "__main__":
     root = tk.Tk()

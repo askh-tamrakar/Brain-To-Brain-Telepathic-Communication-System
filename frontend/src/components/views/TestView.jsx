@@ -1003,7 +1003,6 @@
 
 import React, { useEffect, useState, useMemo } from 'react'
 import '../../styles/test.css'
-import data as '../../../../data/session/'
 
 // Helper: convert hex string -> number
 const hexToNum = (h) => {
@@ -1014,9 +1013,9 @@ const hexToNum = (h) => {
 // Default demo JSON loader will assume JSON shape: { "raw": ["C7","7C","90", ...] }
 // If your file stores numbers instead of hex strings, the parser will handle that as well.
 
-export default function PacketDashboard({ jsonUrl = '' }) {
+export default function PacketDashboard({ jsonUrl = '../../../../data/sessions/' }) {
   // Tweakers (user-adjustable)
-  
+
   const [sync1, setSync1] = useState('C7')
   const [sync2, setSync2] = useState('7C')
   const [packetSize, setPacketSize] = useState(8)
@@ -1040,7 +1039,7 @@ export default function PacketDashboard({ jsonUrl = '' }) {
         // try to find the raw array in common keys
         const raw = j.raw ?? j.data ?? j.bytes ?? j
         // normalize to array of hex strings
-        const normalized = Array.isArray(raw) ? raw.map((b) => (typeof b === 'number' ? b : ('' + b).replace(/^0x/i, '')) ) : []
+        const normalized = Array.isArray(raw) ? raw.map((b) => (typeof b === 'number' ? b : ('' + b).replace(/^0x/i, ''))) : []
         setRawBytes(normalized)
       })
       .catch((e) => setError('Failed to load JSON: ' + e.message))
@@ -1129,14 +1128,14 @@ export default function PacketDashboard({ jsonUrl = '' }) {
     // heuristic for packet size: look for repeated distance between repeated syncs
     const syncOffsets = []
     for (let i = 0; i < rawBytes.length - 1; i++) {
-      if ((('' + rawBytes[i]).toUpperCase()) === ('' + sync1).toUpperCase() && (('' + rawBytes[i+1]).toUpperCase()) === (''+sync2).toUpperCase()) {
+      if ((('' + rawBytes[i]).toUpperCase()) === ('' + sync1).toUpperCase() && (('' + rawBytes[i + 1]).toUpperCase()) === ('' + sync2).toUpperCase()) {
         syncOffsets.push(i)
       }
     }
     if (syncOffsets.length >= 2) {
       const diffs = []
-      for (let i = 1; i < syncOffsets.length; i++) diffs.push(syncOffsets[i] - syncOffsets[i-1])
-      const mode = diffs.sort((a,b)=>diffs.filter(x=>x===a).length - diffs.filter(x=>x===b).length).pop()
+      for (let i = 1; i < syncOffsets.length; i++) diffs.push(syncOffsets[i] - syncOffsets[i - 1])
+      const mode = diffs.sort((a, b) => diffs.filter(x => x === a).length - diffs.filter(x => x === b).length).pop()
       if (mode) setPacketSize(mode)
     }
   }
@@ -1156,53 +1155,53 @@ export default function PacketDashboard({ jsonUrl = '' }) {
         <div className="control-grid">
           <div className="control">
             <label>Sync Byte 1 (hex)</label>
-            <input value={sync1} onChange={(e)=>setSync1(e.target.value.trim())} />
+            <input value={sync1} onChange={(e) => setSync1(e.target.value.trim())} />
           </div>
           <div className="control">
             <label>Sync Byte 2 (hex)</label>
-            <input value={sync2} onChange={(e)=>setSync2(e.target.value.trim())} />
+            <input value={sync2} onChange={(e) => setSync2(e.target.value.trim())} />
           </div>
           <div className="control">
             <label>Packet Size</label>
-            <input type="number" min={4} value={packetSize} onChange={(e)=>setPacketSize(Number(e.target.value)||1)} />
+            <input type="number" min={4} value={packetSize} onChange={(e) => setPacketSize(Number(e.target.value) || 1)} />
           </div>
           <div className="control">
             <label>CTR index</label>
-            <input type="number" value={ctrIndex} onChange={(e)=>setCtrIndex(Number(e.target.value))} />
+            <input type="number" value={ctrIndex} onChange={(e) => setCtrIndex(Number(e.target.value))} />
           </div>
           <div className="control">
             <label>End index</label>
-            <input type="number" value={endIndex} onChange={(e)=>setEndIndex(Number(e.target.value))} />
+            <input type="number" value={endIndex} onChange={(e) => setEndIndex(Number(e.target.value))} />
           </div>
 
-          <div className="control small"> 
+          <div className="control small">
             <label>Ch0 H</label>
-            <input type="number" value={ch0HIndex} onChange={(e)=>setCh0HIndex(Number(e.target.value))} />
+            <input type="number" value={ch0HIndex} onChange={(e) => setCh0HIndex(Number(e.target.value))} />
           </div>
-          <div className="control small"> 
+          <div className="control small">
             <label>Ch0 L</label>
-            <input type="number" value={ch0LIndex} onChange={(e)=>setCh0LIndex(Number(e.target.value))} />
+            <input type="number" value={ch0LIndex} onChange={(e) => setCh0LIndex(Number(e.target.value))} />
           </div>
-          <div className="control small"> 
+          <div className="control small">
             <label>Ch1 H</label>
-            <input type="number" value={ch1HIndex} onChange={(e)=>setCh1HIndex(Number(e.target.value))} />
+            <input type="number" value={ch1HIndex} onChange={(e) => setCh1HIndex(Number(e.target.value))} />
           </div>
-          <div className="control small"> 
+          <div className="control small">
             <label>Ch1 L</label>
-            <input type="number" value={ch1LIndex} onChange={(e)=>setCh1LIndex(Number(e.target.value))} />
+            <input type="number" value={ch1LIndex} onChange={(e) => setCh1LIndex(Number(e.target.value))} />
           </div>
 
           <div className="control actions">
-            <button onClick={()=>setPackets(parsed)}>Apply</button>
+            <button onClick={() => setPackets(parsed)}>Apply</button>
             <button onClick={autoDetect}>Auto-detect</button>
-            <button onClick={()=>{ setSync1('C7'); setSync2('7C'); setPacketSize(8); setCtrIndex(2); setEndIndex(7); setCh0HIndex(3); setCh0LIndex(4); setCh1HIndex(5); setCh1LIndex(6) }}>Reset</button>
+            <button onClick={() => { setSync1('C7'); setSync2('7C'); setPacketSize(8); setCtrIndex(2); setEndIndex(7); setCh0HIndex(3); setCh0LIndex(4); setCh1HIndex(5); setCh1LIndex(6) }}>Reset</button>
           </div>
 
         </div>
 
         <div className="toggles">
-          <label><input type="checkbox" checked={showOnlyValid} onChange={(e)=>setShowOnlyValid(e.target.checked)} /> Show only valid</label>
-          <label style={{marginLeft: '1rem'}}>Limit packets: <input type="number" value={limit} onChange={(e)=>setLimit(Number(e.target.value))} style={{width:80}}/></label>
+          <label><input type="checkbox" checked={showOnlyValid} onChange={(e) => setShowOnlyValid(e.target.checked)} /> Show only valid</label>
+          <label style={{ marginLeft: '1rem' }}>Limit packets: <input type="number" value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ width: 80 }} /></label>
         </div>
 
       </section>
@@ -1213,11 +1212,11 @@ export default function PacketDashboard({ jsonUrl = '' }) {
           <div className="sparks">
             <div className="spark-wrap">
               <h3>Channel 0</h3>
-              <Sparkline values={packets.filter((p,i)=>!showOnlyValid||p.validEnd).map(p=>p.ch0)} />
+              <Sparkline values={packets.filter((p, i) => !showOnlyValid || p.validEnd).map(p => p.ch0)} />
             </div>
             <div className="spark-wrap">
               <h3>Channel 1</h3>
-              <Sparkline values={packets.filter((p,i)=>!showOnlyValid||p.validEnd).map(p=>p.ch1)} />
+              <Sparkline values={packets.filter((p, i) => !showOnlyValid || p.validEnd).map(p => p.ch1)} />
             </div>
           </div>
         </div>
@@ -1238,7 +1237,7 @@ export default function PacketDashboard({ jsonUrl = '' }) {
                 </tr>
               </thead>
               <tbody>
-                {packets.filter((p)=>!showOnlyValid || p.validEnd).map((p, idx) => (
+                {packets.filter((p) => !showOnlyValid || p.validEnd).map((p, idx) => (
                   <tr key={idx} className={p.validEnd ? 'valid' : 'invalid'}>
                     <td>{idx}</td>
                     <td>{p.offset}</td>
@@ -1246,7 +1245,7 @@ export default function PacketDashboard({ jsonUrl = '' }) {
                     <td>{p.ch0}</td>
                     <td>{p.ch1}</td>
                     <td>{('' + p.endByte).toUpperCase()}</td>
-                    <td className="bytes">{p.packet.map(b=>(''+b).toUpperCase()).join(' ')}</td>
+                    <td className="bytes">{p.packet.map(b => ('' + b).toUpperCase()).join(' ')}</td>
                   </tr>
                 ))}
               </tbody>
