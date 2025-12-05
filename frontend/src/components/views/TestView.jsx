@@ -1013,7 +1013,7 @@ const hexToNum = (h) => {
 // Default demo JSON loader will assume JSON shape: { "raw": ["C7","7C","90", ...] }
 // If your file stores numbers instead of hex strings, the parser will handle that as well.
 
-export default function PacketDashboard({ jsonUrl = '../../../../data/sessions/' }) {
+export default function PacketDashboard() {
   // Tweakers (user-adjustable)
 
   const [sync1, setSync1] = useState('C7')
@@ -1031,19 +1031,26 @@ export default function PacketDashboard({ jsonUrl = '../../../../data/sessions/'
   const [showOnlyValid, setShowOnlyValid] = useState(true)
   const [limit, setLimit] = useState(200)
 
-  useEffect(() => {
-    // load JSON once
-    fetch(jsonUrl)
-      .then((r) => r.json())
-      .then((j) => {
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      try {
+        const j = JSON.parse(evt.target.result)
         // try to find the raw array in common keys
         const raw = j.raw ?? j.data ?? j.bytes ?? j
         // normalize to array of hex strings
         const normalized = Array.isArray(raw) ? raw.map((b) => (typeof b === 'number' ? b : ('' + b).replace(/^0x/i, ''))) : []
         setRawBytes(normalized)
-      })
-      .catch((e) => setError('Failed to load JSON: ' + e.message))
-  }, [jsonUrl])
+        setError(null)
+      } catch (err) {
+        setError('Failed to parse JSON: ' + err.message)
+      }
+    }
+    reader.readAsText(file)
+  }
 
   // parsing logic: find packets by looking for sync bytes then slicing packetSize
   const parsed = useMemo(() => {
@@ -1145,6 +1152,7 @@ export default function PacketDashboard({ jsonUrl = '../../../../data/sessions/'
       <header className="dash-header">
         <h1>Arduino Packet Filter Dashboard</h1>
         <div className="summary">
+          <input type="file" accept=".json" onChange={handleFileUpload} className="mb-2" />
           <div>Raw bytes: {rawBytes.length}</div>
           <div>Parsed packets: {packets.length}</div>
           <div>Packet size (current): {packetSize}</div>
@@ -1256,7 +1264,7 @@ export default function PacketDashboard({ jsonUrl = '../../../../data/sessions/'
 
       {error && <div className="error">{error}</div>}
 
-      <footer className="dash-footer">Tip: Place your out_of_acquisition JSON at <code>/data/out_of_acquisition.json</code>. See the top of the file for expected JSON shapes.</footer>
+      <footer className="dash-footer">Tip: Upload a JSON file containing raw packet data. See the top of the file for expected JSON shapes.</footer>
     </div>
   )
 }
