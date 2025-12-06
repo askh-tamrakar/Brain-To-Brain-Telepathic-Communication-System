@@ -6,7 +6,7 @@ export default function DevicesView() {
   const [filterLow, setFilterLow] = useState(1)
   const [filterHigh, setFilterHigh] = useState(45)
   const [testStatus, setTestStatus] = useState(null)
-  
+
   const toggleSensor = (sensor) => {
     if (selectedSensors.includes(sensor)) {
       setSelectedSensors(prev => prev.filter(s => s !== sensor))
@@ -14,7 +14,7 @@ export default function DevicesView() {
       setSelectedSensors(prev => [...prev, sensor])
     }
   }
-  
+
   const testStream = () => {
     setTestStatus('testing')
     setTimeout(() => {
@@ -22,36 +22,39 @@ export default function DevicesView() {
       setTimeout(() => setTestStatus(null), 3000)
     }, 2000)
   }
-  
+
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Device Configuration</h2>
-        
+    <div className="space-y-6">
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
+        <h2 className="text-2xl font-bold text-text mb-6 flex items-center gap-3">
+          <span className="w-3 h-3 rounded-full bg-primary animate-pulse"></span>
+          Device Configuration
+        </h2>
+
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Sensor Selection</label>
+            <label className="block text-sm font-bold text-text mb-3">Sensor Selection</label>
             <div className="flex gap-4">
               {['EEG', 'EOG', 'EMG'].map(sensor => (
-                <label key={sensor} className="flex items-center gap-2 cursor-pointer">
+                <label key={sensor} className="flex items-center gap-3 cursor-pointer group">
                   <input
                     type="checkbox"
                     checked={selectedSensors.includes(sensor)}
                     onChange={() => toggleSensor(sensor)}
-                    className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                    className="w-6 h-6 text-primary rounded-lg focus:ring-2 focus:ring-primary/50 border-border bg-bg"
                   />
-                  <span className="font-medium text-gray-700">{sensor}</span>
+                  <span className="font-bold text-text group-hover:text-primary transition-colors">{sensor}</span>
                 </label>
               ))}
             </div>
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sampling Rate (Hz)</label>
-            <select 
+            <label className="block text-sm font-bold text-text mb-3">Sampling Rate (Hz)</label>
+            <select
               value={samplingRate}
               onChange={(e) => setSamplingRate(Number(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 bg-bg border border-border text-text rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
             >
               <option value={125}>125 Hz</option>
               <option value={250}>250 Hz</option>
@@ -59,42 +62,41 @@ export default function DevicesView() {
               <option value={1000}>1000 Hz</option>
             </select>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">High-pass Filter (Hz)</label>
+              <label className="block text-sm font-bold text-text mb-3">High-pass Filter (Hz)</label>
               <input
                 type="number"
                 value={filterLow}
                 onChange={(e) => setFilterLow(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 bg-bg border border-border text-text rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
                 min="0.1"
                 step="0.1"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Low-pass Filter (Hz)</label>
+              <label className="block text-sm font-bold text-text mb-3">Low-pass Filter (Hz)</label>
               <input
                 type="number"
                 value={filterHigh}
                 onChange={(e) => setFilterHigh(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 bg-bg border border-border text-text rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
                 min="1"
                 step="1"
               />
             </div>
           </div>
-          
-          <button 
+
+          <button
             onClick={testStream}
             disabled={testStatus === 'testing'}
-            className={`w-full py-3 rounded-lg font-semibold transition ${
-              testStatus === 'testing' 
-                ? 'bg-yellow-500 text-white cursor-wait'
+            className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-glow ${testStatus === 'testing'
+                ? 'bg-accent text-primary-contrast cursor-wait animate-pulse'
                 : testStatus === 'success'
-                ? 'bg-green-600 text-white'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
+                  ? 'bg-accent text-primary-contrast'
+                  : 'bg-primary text-primary-contrast hover:opacity-90 hover:translate-y-[-2px] active:translate-y-[0px]'
+              }`}
           >
             {testStatus === 'testing' && '🧪 Testing Stream...'}
             {testStatus === 'success' && '✅ Test Successful!'}
@@ -102,28 +104,33 @@ export default function DevicesView() {
           </button>
         </div>
       </div>
-      
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Current Configuration</h3>
-        <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Active Sensors:</span>
-            <span className="font-medium">{selectedSensors.join(', ') || 'None'}</span>
+
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
+        <h3 className="text-xl font-bold text-text mb-4">Current Configuration</h3>
+        <div className="bg-bg/50 backdrop-blur-sm rounded-xl p-5 space-y-3 border border-border">
+          <div className="flex justify-between items-center">
+            <span className="text-muted font-medium">Active Sensors:</span>
+            <span className="font-bold text-text">{selectedSensors.join(', ') || 'None'}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Sampling Rate:</span>
-            <span className="font-medium">{samplingRate} Hz</span>
+          <div className="flex justify-between items-center">
+            <span className="text-muted font-medium">Sampling Rate:</span>
+            <span className="font-bold text-text">{samplingRate} Hz</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Filter Range:</span>
-            <span className="font-medium">{filterLow} - {filterHigh} Hz</span>
+          <div className="flex justify-between items-center">
+            <span className="text-muted font-medium">Filter Range:</span>
+            <span className="font-bold text-text">{filterLow} - {filterHigh} Hz</span>
           </div>
         </div>
       </div>
-      
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Saved Profiles</h3>
-        <p className="text-gray-600">No saved device profiles. Configure and save a profile above.</p>
+
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
+        <h3 className="text-xl font-bold text-text mb-4">Saved Profiles</h3>
+        <div className="flex flex-col items-center justify-center py-12 text-muted space-y-3">
+          <div className="w-16 h-16 rounded-full bg-bg border border-border flex items-center justify-center">
+            <span className="text-2xl">📋</span>
+          </div>
+          <p>No saved device profiles. Configure and save a profile above.</p>
+        </div>
       </div>
     </div>
   )
