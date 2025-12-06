@@ -18,6 +18,8 @@ export default function LiveView({ wsData }) {
   const [isPaused, setIsPaused] = useState(false)
   const [displayMode, setDisplayMode] = useState('single') // 'single' | 'overlay'
   const [selectedChannel, setSelectedChannel] = useState(0)
+  const [showEog, setShowEog] = useState(true)
+  const [showEmg, setShowEmg] = useState(true)
 
   // limits
   const MAX_POINTS_PER_MESSAGE = 120
@@ -139,88 +141,154 @@ export default function LiveView({ wsData }) {
   }, [displayMode, selectedChannel, eegByChannel])
 
   return (
-    <div className="space-y-6">
-      <div className="card bg-surface border border-border shadow-card rounded-2xl p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex gap-3 items-center flex-wrap">
-            <button
-              onClick={() => setIsPaused(!isPaused)}
-              className={`px-6 py-3 rounded-xl font-bold transition-all shadow-glow ${isPaused
-                  ? 'bg-accent text-primary-contrast hover:opacity-90'
-                  : 'bg-primary text-primary-contrast hover:opacity-90'
-                }`}
-            >
-              {isPaused ? '▶ Resume' : '⏸ Pause'}
-            </button>
+    <div className="flex flex-col h-full bg-bg gap-6 p-4 md:p-6 overflow-y-auto">
+      {/* Top Banner / Controls */}
+      <div className="card bg-surface border border-border shadow-card rounded-2xl p-5 sticky top-0 z-20 backdrop-blur-md bg-opacity-95">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
 
-            <label className="text-sm font-bold text-text">Time window:</label>
-            <select
-              value={timeWindowMs}
-              onChange={(e) => setTimeWindowMs(Number(e.target.value))}
-              className="px-4 py-3 bg-bg border border-border text-text rounded-xl focus:ring-2 focus:ring-primary/50 outline-none"
-            >
-              <option value={5000}>5 s</option>
-              <option value={10000}>10 s</option>
-              <option value={30000}>30 s</option>
-              <option value={60000}>60 s</option>
-            </select>
+          <div className="flex items-center gap-4">
+            <div className="bg-primary/10 p-3 rounded-xl border border-primary/20">
+              <div className={`status-dot w-4 h-4 ${isPaused ? 'bg-accent' : 'bg-primary'} animate-pulse shadow-[0_0_10px_currentColor]`}></div>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-text tracking-tight">Live Monitoring</h2>
+              <p className="text-xs text-muted font-mono uppercase tracking-widest">{isPaused ? 'PAUSED' : 'STREAMING ACTIVE'}</p>
+            </div>
           </div>
 
-          <div className="flex gap-6 items-center flex-wrap">
-            <div className="flex items-center gap-3">
-              <label className="text-sm font-bold text-text">EEG Display:</label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="displayMode"
-                  value="single"
-                  checked={displayMode === 'single'}
-                  onChange={() => setDisplayMode('single')}
-                  className="w-5 h-5 text-primary"
-                />
-                <span className="text-sm font-medium text-text">Single</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="displayMode"
-                  value="overlay"
-                  checked={displayMode === 'overlay'}
-                  onChange={() => setDisplayMode('overlay')}
-                  className="w-5 h-5 text-primary"
-                />
-                <span className="text-sm font-medium text-text">Overlay all</span>
-              </label>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Control Group */}
+            <div className="flex items-center gap-2 bg-bg/50 p-1.5 rounded-xl border border-border">
+              <button
+                onClick={() => setIsPaused(!isPaused)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold text-sm transition-all duration-200 ${isPaused
+                    ? 'bg-accent/20 text-accent hover:bg-accent/30 border border-accent/20'
+                    : 'bg-primary/20 text-primary hover:bg-primary/30 border border-primary/20 shadow-glow'
+                  }`}
+              >
+                {isPaused ? '▶ Resume Stream' : '⏸ Pause Stream'}
+              </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-bold text-text">Channel:</label>
+            <div className="h-8 w-[1px] bg-border mx-1"></div>
+
+            {/* Time Window */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider ml-1">Time Window</label>
               <select
-                value={selectedChannel}
-                onChange={(e) => setSelectedChannel(Number(e.target.value))}
-                className="px-3 py-2 bg-bg border border-border text-text rounded-lg outline-none"
-                disabled={displayMode === 'overlay'}
+                value={timeWindowMs}
+                onChange={(e) => setTimeWindowMs(Number(e.target.value))}
+                className="px-3 py-2 bg-bg border border-border text-text text-sm rounded-lg focus:ring-2 focus:ring-primary/50 outline-none hover:border-primary/50 transition-colors"
               >
-                {knownEegChannels.length === 0 && <option value={0}>0</option>}
-                {knownEegChannels.map(ch => (
-                  <option key={ch} value={ch}>Ch {ch}</option>
-                ))}
+                <option value={5000}>5 Seconds</option>
+                <option value={10000}>10 Seconds</option>
+                <option value={30000}>30 Seconds</option>
+                <option value={60000}>60 Seconds</option>
               </select>
             </div>
           </div>
         </div>
+
+        {/* Filters / Toggles Row */}
+        <div className="mt-6 pt-4 border-t border-border flex flex-wrap items-center gap-6">
+          <div className="flex items-center gap-4">
+            <span className="text-xs font-bold text-text uppercase tracking-wider bg-bg/50 px-2 py-1 rounded">EEG Mode:</span>
+            <div className="flex bg-bg/50 p-1 rounded-lg border border-border">
+              <button
+                onClick={() => setDisplayMode('single')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${displayMode === 'single' ? 'bg-primary text-primary-contrast shadow-sm' : 'text-muted hover:text-text'}`}
+              >
+                Single Ch
+              </button>
+              <button
+                onClick={() => setDisplayMode('overlay')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${displayMode === 'overlay' ? 'bg-primary text-primary-contrast shadow-sm' : 'text-muted hover:text-text'}`}
+              >
+                Overlay All
+              </button>
+            </div>
+          </div>
+
+          {displayMode === 'single' && (
+            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300">
+              <span className="text-xs font-bold text-muted uppercase">Select Channel:</span>
+              <select
+                value={selectedChannel}
+                onChange={(e) => setSelectedChannel(Number(e.target.value))}
+                className="px-3 py-1.5 bg-bg border border-border text-text text-xs rounded-lg outline-none cursor-pointer hover:border-primary/50"
+              >
+                {knownEegChannels.length === 0 && <option value={0}>Waiting for data...</option>}
+                {knownEegChannels.map(ch => (
+                  <option key={ch} value={ch}>Channel {ch}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex-grow"></div>
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className={`w-10 h-5 rounded-full p-1 transition-colors duration-300 ${showEog ? 'bg-emerald-500/20 ring-1 ring-emerald-500' : 'bg-bg ring-1 ring-border'}`}>
+                <div className={`w-3 h-3 rounded-full bg-emerald-500 shadow-sm transform transition-transform duration-300 ${showEog ? 'translate-x-[18px]' : 'translate-x-0'}`}></div>
+              </div>
+              <input type="checkbox" className="hidden" checked={showEog} onChange={e => setShowEog(e.target.checked)} />
+              <span className={`text-xs font-bold transition-colors ${showEog ? 'text-emerald-400' : 'text-muted group-hover:text-text'}`}>Show EOG</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className={`w-10 h-5 rounded-full p-1 transition-colors duration-300 ${showEmg ? 'bg-amber-500/20 ring-1 ring-amber-500' : 'bg-bg ring-1 ring-border'}`}>
+                <div className={`w-3 h-3 rounded-full bg-amber-500 shadow-sm transform transition-transform duration-300 ${showEmg ? 'translate-x-[18px]' : 'translate-x-0'}`}></div>
+              </div>
+              <input type="checkbox" className="hidden" checked={showEmg} onChange={e => setShowEmg(e.target.checked)} />
+              <span className={`text-xs font-bold transition-colors ${showEmg ? 'text-amber-400' : 'text-muted group-hover:text-text'}`}>Show EMG</span>
+            </label>
+          </div>
+        </div>
       </div>
 
-      <SignalChart
-        title="EEG - Brain Waves"
-        color="#3b82f6"
-        timeWindowMs={timeWindowMs}
-        {...eegChartProp}
-        channelLabelPrefix="Ch"
-      />
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 pb-10">
 
-      <SignalChart title="EOG - Eye Movement" data={eogData} color="#10b981" timeWindowMs={timeWindowMs} />
-      <SignalChart title="EMG - Muscle Activity" data={emgData} color="#f59e0b" timeWindowMs={timeWindowMs} />
+        {/* Main EEG Chart */}
+        <div className="col-span-1 xl:col-span-2 h-[350px] md:h-[400px]">
+          <SignalChart
+            title={displayMode === 'single' ? `EEG Channel ${selectedChannel}` : 'EEG Overlay (All Channels)'}
+            color="#3b82f6"
+            timeWindowMs={timeWindowMs}
+            {...eegChartProp}
+            channelLabelPrefix="Ch"
+            height={320}
+            showGrid={true}
+          />
+        </div>
+
+        {/* Secondary Charts */}
+        {showEog && (
+          <div className="col-span-1 h-[250px]">
+            <SignalChart
+              title="EOG - Eye Movement"
+              data={eogData}
+              color="#10b981"
+              timeWindowMs={timeWindowMs}
+              height={200}
+            />
+          </div>
+        )}
+
+        {showEmg && (
+          <div className="col-span-1 h-[250px]">
+            <SignalChart
+              title="EMG - Muscle Activity"
+              data={emgData}
+              color="#f59e0b"
+              timeWindowMs={timeWindowMs}
+              height={200}
+            />
+          </div>
+        )}
+
+      </div>
     </div>
   )
 }

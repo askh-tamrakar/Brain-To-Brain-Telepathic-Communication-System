@@ -76,19 +76,23 @@ export default function Dashboard() {
   return (
     <div className="app-root">
       {/* Navigation */}
-      <div className="topbar">
-        <div className="topbar-inner container">
-          <div className="brand">
-            <video muted autoPlay loop playsInline preload="auto" aria-label="logo animation">
-              <source src="/Resources/Encryption.mp4" type="video/mp4" />
-            </video>
-            <div className="title">
-              NeuroKeys
+      <div className="sticky top-0 z-50 bg-bg/80 backdrop-blur-md border-b border-border shadow-sm transition-all duration-300">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-primary/20 blur-lg rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <video muted autoPlay loop playsInline preload="auto" aria-label="logo animation" className="w-10 h-10 relative z-10 rounded-full border border-border bg-black object-cover">
+                <source src="/Resources/Encryption.mp4" type="video/mp4" />
+              </video>
+            </div>
+            <div className="flex flex-col">
+              <span className="font-bold text-lg tracking-tight text-white leading-none">NeuroKeys</span>
+              <span className="text-[10px] uppercase tracking-widest text-muted font-bold">BCI Dashboard</span>
             </div>
           </div>
 
-          <nav className="nav">
-            <div className="pill-nav" style={{ background: 'transparent', border: 'none', boxShadow: 'none', padding: 0 }}>
+          <nav className="hidden md:flex flex-1 justify-center max-w-2xl">
+            <div className="pill-nav backdrop-blur-sm bg-surface/50 border border-white/5 rounded-full p-1" style={{ boxShadow: 'none' }}>
               <PillNav
                 items={[
                   { label: 'Live', onClick: () => setCurrentPage('live'), href: '#live' },
@@ -137,12 +141,38 @@ export default function Dashboard() {
             </div>
           </nav>
 
-          <button
-            className="btn-encrypting"
-            onClick={() => document.getElementById('encrypt-card')?.scrollIntoView({ behavior: 'smooth' })}
-          >
-            Connect
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Connection Status Indicator */}
+            <div className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full border ${status === 'connected' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+                status === 'connecting' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
+                  'bg-red-500/10 border-red-500/20 text-red-400'
+              }`}>
+              <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_currentColor]' :
+                  status === 'connecting' ? 'bg-amber-500 animate-pulse' :
+                    'bg-red-500'
+                }`}></div>
+              <span className="text-xs font-bold uppercase tracking-wider">{status}</span>
+              {status === 'connected' && (
+                <>
+                  <div className="w-[1px] h-3 bg-current opacity-20 mx-1"></div>
+                  <span className="text-xs font-mono opacity-80">{latency}ms</span>
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => status === 'connected' ? disconnect() : connect()}
+              className={`
+                relative overflow-hidden px-5 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all duration-300
+                ${status === 'connected'
+                  ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white shadow-none'
+                  : 'bg-primary text-primary-contrast hover:bg-primary/90 shadow-[0_0_20px_-5px_var(--primary)]'
+                }
+              `}
+            >
+              {status === 'connected' ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
         </div>
       </div>
 
